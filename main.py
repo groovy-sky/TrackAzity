@@ -55,11 +55,10 @@ def main():
     # Store peeringsDict to output.csv file
     with open('output.csv', mode='w', newline='') as csv_file:
         fieldnames = ['IP', 'subscriptionId', 'vnetName', 'peeringState', 'peeringSyncLevel']
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames, delimiter='\x1f')
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames, delimiter='|')
         writer.writeheader()
         for ip, peeringInfo in peeringsDict.items():
             writer.writerow({'IP': ip, 'subscriptionId': peeringInfo['subscriptionId'], 'vnetName': peeringInfo['vnetName'], 'peeringState': peeringInfo['peeringState'], 'peeringSyncLevel': peeringInfo['peeringSyncLevel']})
-
 
 if __name__ == "__main__":
     main()
