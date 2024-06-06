@@ -1,12 +1,45 @@
 import csv    
 import threading    
 import ipaddress    
-    
+import argparse   
+import hashlib  
+  
 class IpManager:    
     def __init__(self, csv_file):    
         self.lock = threading.Lock()    
         self.csv_file = csv_file    
         self.ip_ranges = self.load_from_csv(csv_file)    
+    
+    def find_available_range(self, required_size):    
+        for ip_range in self.ip_ranges:    
+            if ip_range["network_name"] == '' and ip_range["ip_range"].prefixlen <= required_size:    
+                return ip_range    
+        return None    
+    
+    def reserve_range(self, required_size):    
+        with self.lock:    
+            ip_range = self.find_available_range(required_size)    
+            if ip_range is None:    
+                return None    
+        
+            ip_range["network_name"] = "Reserved"    
+            ip_range["hashed"] = hashlib.md5(str(ip_range["ip_range"]).encode()).hexdigest()  
+        
+            subnets = list(ip_range["ip_range"].subnets(new_prefix=required_size))    
+            reserved_subnet = subnets.pop(0)    
+            ip_range["ip_range"] = reserved_subnet    
+        
+            for subnet in subnets:    
+                self.ip_ranges.append({    
+                    "ip_range": subnet,    
+                    "subscription_id": '',    
+                    "network_name": '',    
+                    "peering_state": '',    
+                    "peering_sync_level": '',    
+                    "hashed": None  
+                })    
+            self.save_to_csv()    
+            return ip_range    
     
     def load_from_csv(self, csv_file):    
         ip_ranges = []    
@@ -18,66 +51,51 @@ class IpManager:
                 network_name = row['NetworkName']    
                 peering_state = row['peeringState']    
                 peering_sync_level = row['peeringSyncLevel']    
+                hashed = hashlib.md5(str(ip_range).encode()).hexdigest() if network_name else None  
                 ip_ranges.append({    
                     "ip_range": ip_range,    
                     "subscription_id": subscription_id,    
                     "network_name": network_name,    
                     "peering_state": peering_state,    
-                    "peering_sync_level": peering_sync_level    
+                    "peering_sync_level": peering_sync_level,  
+                    "hashed": hashed  
                 })    
-        return ip_ranges    
+        ip_ranges = sorted(ip_ranges, key=lambda k: int(ipaddress.IPv4Address(k['ip_range'].network_address)))    
+        return ip_ranges  
     
-    def find_available_range(self, required_size):    
-        for ip_range in self.ip_ranges:    
-            if ip_range["network_name"] == '' and ip_range["ip_range"].prefixlen <= required_size:    
-                return ip_range    
-        return None    
-  
-    def reserve_range(self, network_name, required_size, subscription_id, peering_state, peering_sync_level):    
-        with self.lock:    
-            ip_range = self.find_available_range(required_size)    
-            if ip_range is None:    
-                return None    
-    
-            # Update the reserved range    
-            ip_range["network_name"] = network_name    
-            ip_range["subscription_id"] = subscription_id    
-            ip_range["peering_state"] = peering_state    
-            ip_range["peering_sync_level"] = peering_sync_level    
-    
-            # Create new ranges for the leftover IPs    
-            subnets = list(ip_range["ip_range"].subnets(new_prefix=required_size))    
-            reserved_subnet = subnets.pop(0)    
-            ip_range["ip_range"] = reserved_subnet    
-    
-            for subnet in subnets:    
-                self.ip_ranges.append({    
-                    "ip_range": subnet,    
-                    "subscription_id": '',    
-                    "network_name": '',    
-                    "peering_state": '',    
-                    "peering_sync_level": ''    
-                })    
-    
-            # Save the updated ranges to the CSV file    
-            self.save_to_csv()    
-            return ip_range    
-  
     def save_to_csv(self):    
         with open(self.csv_file, 'w', newline='') as csvfile:    
-            fieldnames = ['IP', 'subscriptionId', 'NetworkName', 'peeringState', 'peeringSyncLevel']    
+            fieldnames = ['IP', 'subscriptionId', 'NetworkName', 'peeringState', 'peeringSyncLevel', 'Hashed']    
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter='|')    
-  
+    
             writer.writeheader()    
-            for ip_range in self.ip_ranges:    
+            for ip_range in sorted(self.ip_ranges, key=lambda k: int(ipaddress.IPv4Address(k['ip_range'].network_address))):    
                 writer.writerow({    
                     'IP': str(ip_range["ip_range"]),    
                     'subscriptionId': ip_range["subscription_id"],    
                     'NetworkName': ip_range["network_name"],    
                     'peeringState': ip_range["peering_state"],    
-                    'peeringSyncLevel': ip_range["peering_sync_level"]    
+                    'peeringSyncLevel': ip_range["peering_sync_level"],  
+                    'Hashed': ip_range["hashed"]  
                 })    
+
   
-# Usage  
-manager = IpManager('ip_ranges.csv')  
-manager.reserve_range('Network2', 27, 'f406059a-f933-45e0-aefe-e37e0382d5de', 'Connected', 'FullyInSync')  
+def main():  
+    parser = argparse.ArgumentParser(description="Reserve an IP range")  
+    parser.add_argument("size", type=int, help="Size of the required IP range (between 1 and 32)")  
+  
+    args = parser.parse_args()  
+  
+    if args.size < 1 or args.size > 32:  
+        print("Invalid range size. Must be between 1 and 32.")  
+        return  
+  
+    manager = IpManager('ip_ranges.csv')  
+    reserved_range = manager.reserve_range(args.size)  
+    if reserved_range is None:  
+        print("No available IP range could be found.")  
+    else:  
+        print(reserved_range['ip_range'])  
+  
+if __name__ == "__main__":  
+    main()  
