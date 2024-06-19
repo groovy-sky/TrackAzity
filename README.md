@@ -1,4 +1,8 @@
 # az-arm-py
+
+1. Init IP table (from file or Hub VNet)
+2. Allocate IP range
+
 https://github.com/Azure-Samples/MqttApplicationSamples
 
 https://learn.microsoft.com/en-us/azure/virtual-network/virtual-network-manage-peering?tabs=peering-portal
@@ -43,3 +47,5 @@ with service_bus_client:
 https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/servicebus/azure-servicebus/samples
 
 https://tinydb.readthedocs.io/en/latest/getting-started.html#basic-usage
+
+https://learn.microsoft.com/en-us/azure/container-apps/jobs?tabs=azure-cli#scheduled-jobs
