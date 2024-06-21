@@ -3,17 +3,12 @@
 1. Init IP table (from file or Hub VNet)
 2. Allocate IP range
 
-https://github.com/Azure-Samples/MqttApplicationSamples
-
-https://learn.microsoft.com/en-us/azure/virtual-network/virtual-network-manage-peering?tabs=peering-portal
-
-
 Microsoft.Network/virtualNetworks/virtualNetworkPeerings/write
 Microsoft.Network/virtualNetworks/peer/action
 
 Microsoft.Resources.ResourceWriteSuccess
 
-https://techcommunity.microsoft.com/t5/apps-on-azure-blog/deploying-an-event-driven-job-with-azure-container-app-job-and/ba-p/3909279
+[Trigger Job by Service Bus]https://techcommunity.microsoft.com/t5/apps-on-azure-blog/deploying-an-event-driven-job-with-azure-container-app-job-and/ba-p/3909279
 
 https://github.com/Azure-Samples/container-apps-jobs
 
@@ -44,7 +39,9 @@ with service_bus_client:
 
 ```
 
-https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/servicebus/azure-servicebus/samples
+[Code examples](https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/servicebus/azure-servicebus/samples)
+
+[KEDA trigger for Service Bus](https://keda.sh/docs/2.14/scalers/azure-service-bus/)
 
 https://tinydb.readthedocs.io/en/latest/getting-started.html#basic-usage
 
