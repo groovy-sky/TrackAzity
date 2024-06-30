@@ -5,7 +5,7 @@ from azure.servicebus import ServiceBusClient
 from azure.identity import DefaultAzureCredential  
 from time import sleep  
   
-credential = DefaultAzureCredential()  
+credential = DefaultAzureCredential()
   
 def trigger_container_app_job(resource_id):  
     app_sub, app_group, app_name = resource_id.split('/')[2], resource_id.split('/')[4], resource_id.split('/')[-1]  

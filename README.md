@@ -89,7 +89,9 @@ az containerapp job create \
 
 [KEDA trigger for Service Bus](https://keda.sh/docs/2.14/scalers/azure-service-bus/)
 
-https://tinydb.readthedocs.io/en/latest/getting-started.html#basic-usage
+[TinyDB library](https://tinydb.readthedocs.io/en/latest/getting-started.html#basic-usage)
+
+[Deploy ARM template in Python](https://learn.microsoft.com/en-us/azure/azure-resource-manager/templates/deploy-python)
 
 https://learn.microsoft.com/en-us/azure/container-apps/jobs?tabs=azure-cli#scheduled-jobs
 
