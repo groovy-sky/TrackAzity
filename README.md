@@ -16,6 +16,23 @@ https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-python
 
 https://learn.microsoft.com/en-us/azure/devops/service-hooks/services/webhooks?view=azure-devops
 
+
+[Code examples](https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/servicebus/azure-servicebus/samples)
+
+[KEDA trigger for Service Bus](https://keda.sh/docs/2.14/scalers/azure-service-bus/)
+
+[TinyDB library](https://tinydb.readthedocs.io/en/latest/getting-started.html#basic-usage)
+
+[Deploy ARM template in Python](https://learn.microsoft.com/en-us/azure/azure-resource-manager/templates/deploy-python)
+
+https://learn.microsoft.com/en-us/azure/container-apps/jobs?tabs=azure-cli#scheduled-jobs
+
+https://github.com/Azure/azure-sdk-for-go/blob/sdk/resourcemanager/appcontainers/armappcontainers/v2.1.0/sdk/resourcemanager/resources/armresources/client.go
+
+https://learn.microsoft.com/en-us/rest/api/containerapps/jobs/start?view=rest-containerapps-2024-03-01&tabs=HTTP
+
+[Managed ID for Ansible](https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/configure-ansible-to-use-a-managed-identity-with-azure-dynamic/ba-p/1062449)
+
 ```
 from azure.servicebus import ServiceBusClient, ServiceBusMessage  
 import time  
@@ -85,16 +102,22 @@ az containerapp job create \
 
 ```
 
-[Code examples](https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/servicebus/azure-servicebus/samples)
+```
 
-[KEDA trigger for Service Bus](https://keda.sh/docs/2.14/scalers/azure-service-bus/)
+credential = DefaultAzureCredential()
 
-[TinyDB library](https://tinydb.readthedocs.io/en/latest/getting-started.html#basic-usage)
+spoke_sub_id = os.environ["AZURE_SUBSCRIPTION_ID"]
+spoke_res_grp = "exampleGroup"
+spoke_ip = "192.168.150.0/24"
+spoke_vnet_name = "exampleVnet4"
+spoke_resource_id = "/subscriptions/" + spoke_sub_id + "/resourceGroups/" + spoke_res_grp + "/providers/Microsoft.Network/virtualNetworks/" + spoke_vnet_name
 
-[Deploy ARM template in Python](https://learn.microsoft.com/en-us/azure/azure-resource-manager/templates/deploy-python)
+spoke = TemplateDeployer(spoke_sub_id, credential)
 
-https://learn.microsoft.com/en-us/azure/container-apps/jobs?tabs=azure-cli#scheduled-jobs
 
-https://github.com/Azure/azure-sdk-for-go/blob/sdk/resourcemanager/appcontainers/armappcontainers/v2.1.0/sdk/resourcemanager/resources/armresources/client.go
+print(spoke.deploy_template(spoke_res_grp, "vnet_init.json", {"vnetAddressPrefix": {"value": spoke_ip},"vnetName": {"value": spoke_vnet_name},"createSubnet":{"value":True}}))
 
-https://learn.microsoft.com/en-us/rest/api/containerapps/jobs/start?view=rest-containerapps-2024-03-01&tabs=HTTP
+hub_res_id = os.environ["HUB_VNET_ID"]
+
+spoke.deploy_template(spoke_res_grp, "vnet_peering.json", {"vnetName": {"value": spoke_vnet_name},"remoteVnetId": {"value": hub_res_id},"peeringName":{ "value": "hubToSpoke"}})
+```
