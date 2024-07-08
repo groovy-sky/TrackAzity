@@ -25,6 +25,10 @@ https://learn.microsoft.com/en-us/azure/devops/service-hooks/services/webhooks?v
 
 [Deploy ARM template in Python](https://learn.microsoft.com/en-us/azure/azure-resource-manager/templates/deploy-python)
 
+[Azure Python SDK samples](https://github.com/Azure-Samples/azure-samples-python-management/tree/main/samples/resources)
+
+[ResourcesOperations Class Methods](https://learn.microsoft.com/en-us/python/api/azure-mgmt-resource/azure.mgmt.resource.resources.v2021_04_01.operations.resourcesoperations?view=azure-python)
+
 https://learn.microsoft.com/en-us/azure/container-apps/jobs?tabs=azure-cli#scheduled-jobs
 
 https://github.com/Azure/azure-sdk-for-go/blob/sdk/resourcemanager/appcontainers/armappcontainers/v2.1.0/sdk/resourcemanager/resources/armresources/client.go
@@ -120,4 +124,32 @@ print(spoke.deploy_template(spoke_res_grp, "vnet_init.json", {"vnetAddressPrefix
 hub_res_id = os.environ["HUB_VNET_ID"]
 
 spoke.deploy_template(spoke_res_grp, "vnet_peering.json", {"vnetName": {"value": spoke_vnet_name},"remoteVnetId": {"value": hub_res_id},"peeringName":{ "value": "hubToSpoke"}})
+```
+
+```
+
+fully_qualified_namespace = os.environ['SERVICEBUS_FULLY_QUALIFIED_NAMESPACE']
+queue_name = os.environ["SERVICEBUS_QUEUE_NAME"]
+
+sb = SBClient(fully_qualified_namespace, queue_name)
+sb.send_message('Msg')
+sb.receive_message()
+```
+
+```
+    parser = argparse.ArgumentParser(description="Reserve an IP range")  
+    parser.add_argument("size", type=int, help="Size of the required IP range (between 1 and 32)")  
+  
+    args = parser.parse_args()  
+  
+    if args.size < 1 or args.size > 32:  
+        print("Invalid range size. Must be between 1 and 32.")  
+        return  
+  
+    manager = IpManager('ip_ranges.csv')  
+    reserved_range = manager.reserve_range(args.size)  
+    if reserved_range is None:  
+        print("No available IP range could be found.")  
+    else:  
+        print(reserved_range['ip_range'])  
 ```

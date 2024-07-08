@@ -1,4 +1,3 @@
-from azure.identity import ClientSecretCredential
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource import ResourceManagementClient
 import sys, csv

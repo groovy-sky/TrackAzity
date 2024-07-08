@@ -77,25 +77,4 @@ class IpManager:
                     'peeringState': ip_range["peering_state"],    
                     'peeringSyncLevel': ip_range["peering_sync_level"],  
                     'Hashed': ip_range["hashed"]  
-                })    
-
-  
-def main():  
-    parser = argparse.ArgumentParser(description="Reserve an IP range")  
-    parser.add_argument("size", type=int, help="Size of the required IP range (between 1 and 32)")  
-  
-    args = parser.parse_args()  
-  
-    if args.size < 1 or args.size > 32:  
-        print("Invalid range size. Must be between 1 and 32.")  
-        return  
-  
-    manager = IpManager('ip_ranges.csv')  
-    reserved_range = manager.reserve_range(args.size)  
-    if reserved_range is None:  
-        print("No available IP range could be found.")  
-    else:  
-        print(reserved_range['ip_range'])  
-  
-if __name__ == "__main__":  
-    main()  
+                })   
