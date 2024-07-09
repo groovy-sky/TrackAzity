@@ -1,8 +1,7 @@
 from azure.servicebus import ServiceBusMessage, ServiceBusClient
-from azure.identity import DefaultAzureCredential
 
 class SBClient:
-    def __init__(self, fully_qualified_namespace, queue_name, credential=DefaultAzureCredential()):
+    def __init__(self, fully_qualified_namespace, queue_name, credential):
         print("[INF] Initializing Service Bus client")
         self.default_queue = queue_name
         self.servicebus_client = ServiceBusClient(fully_qualified_namespace, credential)

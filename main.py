@@ -1,62 +1,74 @@
-from azure.identity import DefaultAzureCredential
-from azure.mgmt.resource import ResourceManagementClient
-import sys, csv
+import os  
+import datetime  
+from azure.mgmt.appcontainers import ContainerAppsAPIClient  
+from azure.servicebus import ServiceBusMessage, ServiceBusClient
+from azure.identity import DefaultAzureCredential  
+from time import sleep  
+  
+class SBClient:
+    def __init__(self, fully_qualified_namespace, queue_name, credential):
+        print("[INF] Initializing Service Bus client")
+        self.default_queue = queue_name
+        self.servicebus_client = ServiceBusClient(fully_qualified_namespace, credential)
 
-def parseResourceId(resourceId):
-    parts = resourceId.split('/')
-    return {
-        "subscriptionId": parts[2],
-        "resourceGroup": parts[4],
-        "resourceType": parts[6],
-        "resourceName": parts[8]
-    }
+    def send_message(self, message, queue_name=None):
+        print("[INF] Sending a message/-s")
+        queue_name = queue_name or self.default_queue
+        sender = self.servicebus_client.get_queue_sender(queue_name)
+        with sender:
+            if isinstance(message, str):
+                sender.send_messages([ServiceBusMessage(message)])
+            elif isinstance(message, list):
+                for item in message:
+                    sender.send_messages([ServiceBusMessage(item)])
+            else:
+                raise ValueError("[ERR] Invalid message type. Message must be a string or a list.")
+            
+    def receive_message(self, peek = False, queue_name=None):
+        print("[INF] Receiving a message/-s")
+        queue_name = queue_name or self.default_queue
+        with self.servicebus_client.get_queue_receiver(queue_name) as receiver:
+            messages = receiver.receive_messages(max_message_count=1)
+            if peek:
+                for msg in messages:
+                    receiver.peek_message(msg)
+            return messages
+  
+def trigger_container_app_job(resource_id,credential):  
+    app_sub, app_group, app_name = resource_id.split('/')[2], resource_id.split('/')[4], resource_id.split('/')[-1]  
+    print(resource_id.split('/'))  
+  
+    container_client = ContainerAppsAPIClient(credential, app_sub)  
+  
+    print(container_client.jobs.begin_start(  
+        resource_group_name=app_group,  
+        job_name=app_name,  
+    ).result())
 
-def generateCSV(data,filename):
+  
+def main():  
+    service_bus_namespace = os.environ.get("SERVICE_BUS_NAMESPACE")  
+    queue_name = os.environ.get("SERVICE_BUS_QUEUE_NAME")  
+    container_app_job_resource_id = os.environ.get("CONTAINER_APP_JOB_RESOURCE_ID")
 
-    with open(filename, mode='w') as csv_file:
-        fieldnames = ['IP','subscriptionId','vnetName', 'peeringState', 'peeringSyncLevel']
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+    if not service_bus_namespace or not queue_name or not container_app_job_resource_id:
+        print("[ERR] Missing environment variables")
+        return
 
-        writer.writeheader()
-        for row in data:
-            writer.writerow(row)
-
-def main():
-    # Reads user input for resource ID
-    resourceId = sys.argv[1]
-
-    parsed = parseResourceId(resourceId)
-
-    # https://pypi.org/project/azure-identity/
-    resource_client = ResourceManagementClient(
-        credential=DefaultAzureCredential(),
-        subscription_id=parsed["subscriptionId"]
-    )
-
-    # Get information about the resource and store in a dictionary
-    result = resource_client.resources.get_by_id(resource_id=resourceId, api_version="2024-01-01")
-    peeringsDict = {}
-    for peering in result.properties["virtualNetworkPeerings"]:
-        spoke_id = peering["properties"]["remoteVirtualNetwork"]["id"]
-        spoke_parsed = parseResourceId(spoke_id)
-        spoke_subscription_id = spoke_parsed["subscriptionId"]
-        spoke_vnet_name = spoke_parsed["resourceName"]
-        for ip in peering["properties"].get("remoteAddressSpace").get("addressPrefixes"):
-            peeringInfo = {
-                "subscriptionId": spoke_subscription_id,
-                "vnetName": spoke_vnet_name,
-                "peeringState": peering["properties"]["peeringState"],
-                "peeringSyncLevel": peering["properties"]["peeringSyncLevel"]
-            }
-            peeringsDict[ip] = peeringInfo
-    print(peeringsDict)
+    credential = DefaultAzureCredential()
     
-    # Store peeringsDict to output.md file
-    with open('output.md', mode='w') as md_file:
-        md_file.write("| IP | Subscription ID | VNet Name | Peering State | Peering Sync Level |\n")
-        md_file.write("| --- | --- | --- | --- | --- |\n")
-        for ip, peeringInfo in peeringsDict.items():
-            md_file.write(f"| {ip} | {peeringInfo['subscriptionId']} | {peeringInfo['vnetName']} | {peeringInfo['peeringState']} | {peeringInfo['peeringSyncLevel']} |\n")
+    sb_client = SBClient(service_bus_namespace, queue_name, credential)
 
-if __name__ == "__main__":
-    main()
+    start_time = datetime.datetime.now()  
+    end_time = start_time + datetime.timedelta(minutes=10)  # run for 10 minutes  
+   
+    while datetime.datetime.now() < end_time:    
+        messages = sb_client.receive_message(peek=True)  
+        if messages:    
+            print("[INF] New message recieved")  
+            print(messages.body)  
+            trigger_container_app_job(container_app_job_resource_id, credential)    
+            return    
+        sleep(60)  # Wait for 1 minute    
+
+main()
