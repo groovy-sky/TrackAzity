@@ -1,7 +1,6 @@
 import os
 import json
 from azure.mgmt.resource import ResourceManagementClient
-from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource.resources.models import DeploymentMode
 import time
 
@@ -33,7 +32,12 @@ class AzClient:
     def get_resource_by_id(self, resource_id, api_ver=None):
         if api_ver is None:
             api_ver = self.get_provider_latest_api_version(resource_id.split('/')[6], resource_id.split('/')[7])
-        return self.resource_client.resources.get_by_id(resource_id, api_ver)
+        try:
+            response = self.resource_client.resources.get_by_id(resource_id, api_version=api_ver)
+        except Exception as e:
+            print("[ERR]" + str(e))
+            response = ""
+        return response
 
     def deploy_template(self, resource_group, template_file, parameters):
         print("[INF] Deploying template")
@@ -69,12 +73,3 @@ class AzClient:
         for resource in self.get_provider(provider_namespace).resource_types:
             if resource.resource_type == resource_type:
                 return resource.api_versions[0]
-
-credential = DefaultAzureCredential()
-spoke_sub_id = os.environ["AZURE_SUBSCRIPTION_ID"]
-hub_res_id = os.environ["HUB_VNET_ID"]
-
-spoke = AzClient(spoke_sub_id, credential)
-# print(spoke.get_resource("exampleGroup", "Microsoft.Network", "virtualNetworks", "exampleVnet", "2020-06-01"))
-print(spoke.get_resource_by_id(hub_res_id))
-# print(spoke.check_resource_existence("exampleGroup", "exampleVnet"))

@@ -153,3 +153,14 @@ sb.receive_message()
     else:  
         print(reserved_range['ip_range'])  
 ```
+
+```
+credential = DefaultAzureCredential()
+spoke_sub_id = os.environ["AZURE_SUBSCRIPTION_ID"]
+hub_res_id = os.environ["HUB_VNET_ID"]
+
+spoke = AzClient(spoke_sub_id, credential)
+# print(spoke.get_resource("exampleGroup", "Microsoft.Network", "virtualNetworks", "exampleVnet", "2020-06-01"))
+print(len(spoke.get_resource_by_id(hub_res_id+'aaa')))
+# print(spoke.check_resource_existence("exampleGroup", "exampleVnet"))
+```
