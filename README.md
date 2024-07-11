@@ -35,7 +35,6 @@ https://github.com/Azure/azure-sdk-for-go/blob/sdk/resourcemanager/appcontainers
 
 https://learn.microsoft.com/en-us/rest/api/containerapps/jobs/start?view=rest-containerapps-2024-03-01&tabs=HTTP
 
-[Managed ID for Ansible](https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/configure-ansible-to-use-a-managed-identity-with-azure-dynamic/ba-p/1062449)
 
 ```
 from azure.servicebus import ServiceBusClient, ServiceBusMessage  
