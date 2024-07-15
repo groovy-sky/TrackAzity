@@ -2,8 +2,9 @@ import os
 import datetime    
 from azure.mgmt.appcontainers import ContainerAppsAPIClient    
 from azure.servicebus import ServiceBusMessage, ServiceBusClient, ServiceBusReceivedMessage
-from azure.identity import DefaultAzureCredential    
+from azure.identity import DefaultAzureCredential,ClientSecretCredential
 from azure.mgmt.resource import ResourceManagementClient
+from azure.keyvault.secrets import SecretClient
 from time import sleep    
 import json
 
@@ -171,11 +172,31 @@ def manager():
         sleep(30) 
 
 def runner():
-    service_bus_namespace = os.environ.get("SERVICE_BUS_NAMESPACE")    
-    queue_name = os.environ.get("SERVICE_BUS_QUEUE_NAME")
+
+    container_app_job_resource_id = os.environ.get("CONTAINER_APP_JOB_RESOURCE_ID")  
+
+    default_subscription = parse_resource_id(container_app_job_resource_id)[0]
+
+    credential = DefaultAzureCredential()  
+    az_client = AzClient(default_subscription, credential)
+
+    tenant_id = az_client.get_resource_by_id("/tenants","2022-12-01").additional_properties["value"][0]["tenantId"]
+    
+    vault_name = os.environ.get("KEY_VAULT_NAME")
+    vault_url = f"https://{vault_name}.vault.azure.net"
+    spn_id = os.environ.get("SPN_ID")
+    vault_secret = os.environ.get("VAULT_SECRET")
+
+    vault_client = SecretClient(vault_url, credential)
+
+    print(vault_client.get_secret(vault_secret).value)
+
+    credential = ClientSecretCredential(tenant_id=tenant_id, client_id=spn_id, client_secret=vault_client.get_secret(vault_secret).value)
 
 
-job_role = os.environ.get("JOB_ROLE").tolower()
+
+
+job_role = os.environ.get("JOB_ROLE").lower()
 service_bus_namespace = os.environ.get("SERVICE_BUS_NAMESPACE")    
 queue_name = os.environ.get("SERVICE_BUS_QUEUE_NAME") 
 print("[INF] Running as " + job_role)
