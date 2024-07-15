@@ -6,7 +6,6 @@ from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource import ResourceManagementClient
 from time import sleep    
 import json
-import hashlib
 
 class AzClient:
     def __init__(self, subscription_id, credential):
@@ -143,11 +142,7 @@ def trigger_container_app_job(resource_id,credential):
         job_name=app_name,    
     ).status())  
     
-
-
-def main():    
-    service_bus_namespace = os.environ.get("SERVICE_BUS_NAMESPACE")    
-    queue_name = os.environ.get("SERVICE_BUS_QUEUE_NAME")    
+def manager():    
     container_app_job_resource_id = os.environ.get("CONTAINER_APP_JOB_RESOURCE_ID")  
     
     if not service_bus_namespace or not queue_name or not container_app_job_resource_id:  
@@ -171,9 +166,24 @@ def main():
                 sb_client.genereate_message(message, az_client)
             print("[INF] Total events: " + str(sb_client.total_events_number()))
             sb_client.send_events()
-            #trigger_container_app_job(container_app_job_resource_id, credential)
+            trigger_container_app_job(container_app_job_resource_id, credential)
             return
         sleep(30) 
-  
-main()  
+
+def runner():
+    service_bus_namespace = os.environ.get("SERVICE_BUS_NAMESPACE")    
+    queue_name = os.environ.get("SERVICE_BUS_QUEUE_NAME")
+
+
+job_role = os.environ.get("JOB_ROLE").tolower()
+service_bus_namespace = os.environ.get("SERVICE_BUS_NAMESPACE")    
+queue_name = os.environ.get("SERVICE_BUS_QUEUE_NAME") 
+print("[INF] Running as " + job_role)
+
+match job_role:
+    case "manager":
+        manager()
+    case "runner":
+        runner()
+
 
