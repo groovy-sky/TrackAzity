@@ -93,32 +93,35 @@ class SBClient:
         with sender:  
             sender.send_messages(message)  
               
-    def receive_message(self, peek = False, queue_name=None, max_message_count=100):  
+    def receive_message(self, delete = False, queue_name=None, max_message_count=100):  
         print("[INF] Receiving a message/-s")  
         queue_name = queue_name or self.default_queue  
         with self.servicebus_client.get_queue_receiver(queue_name) as receiver:  
             messages = receiver.receive_messages(max_message_count=max_message_count)  
             for message in messages:  
-                if peek:  
+                if delete:  
                     receiver.complete_message(message)  
-                return messages  
+            return messages  
             
     def genereate_message(self, msg: ServiceBusReceivedMessage, az_client: AzClient):  
         print("[INF] Parse event and generate a message")
         parsed = json.loads(str(msg).lower())
         original_subject =  parsed['subject']
         az_client.set_subscription(parse_resource_id(original_subject)[0])
-        match parsed['data']['authorization']['action']:
-            case "microsoft.network/virtualnetworks/virtualnetworkpeerings/write":
-                subject = "vnet-peering"
-                arm_result = az_client.get_resource_by_id(original_subject,"2024-01-01")
-                if arm_result != "":
-                    subject = "vnet-peering"
-                    body = json.dumps({"peeringState": arm_result.properties["provisioningState"],"peeringSyncLevel": arm_result.properties["peeringSyncLevel"],"remoteVirtualNetworkId": arm_result.properties["remoteVirtualNetwork"]["id"],"remoteAddressSpace":arm_result.properties["remoteAddressSpace"]["addressPrefixes"]})
+        event_action = parsed['data']['authorization']['action'].split('/')
+        match event_action[2]:
+            case "virtualnetworkpeerings":
+                peering_info = az_client.get_resource_by_id(original_subject,"2024-01-01")
+                if peering_info != "":  
+                    body = json.dumps({"peeringState": peering_info.properties["provisioningState"],"peeringSyncLevel": peering_info.properties["peeringSyncLevel"],"remoteVirtualNetworkId": peering_info.properties["remoteVirtualNetwork"]["id"],"remoteAddressSpace":peering_info.properties["remoteAddressSpace"]["addressPrefixes"],"action":event_action[3]})
                 else:
-                    subject = "failed"
                     body = parsed
-        self.collected_events.append(ServiceBusMessage(body=body, subject=subject, content_type="application/json"))
+            case _:
+                print("[ERR] Unknown event type")
+                self.collected_events.append(ServiceBusMessage(body=parsed, subject="unknown", content_type="application/json"))
+                return
+        print ("[INF] Generated message: " + body)
+        self.collected_events.append(ServiceBusMessage(body=body, subject=event_action[2], content_type="application/json"))
     
     def total_events_number(self):
         return len(self.collected_events)
@@ -146,7 +149,7 @@ def trigger_container_app_job(resource_id,credential):
 def manager():    
     container_app_job_resource_id = os.environ.get("CONTAINER_APP_JOB_RESOURCE_ID")  
     
-    if not service_bus_namespace or not queue_name or not container_app_job_resource_id:  
+    if not service_bus_name or not queue_name or not container_app_job_resource_id:  
         print("[ERR] Missing environment variables")  
         return  
 
@@ -161,24 +164,25 @@ def manager():
     end_time = start_time + datetime.timedelta(minutes=3) 
      
     while datetime.datetime.now() < end_time:      
-        messages = sb_client.receive_message(peek = False)    
+        messages = sb_client.receive_message(delete = False)    
         if messages:
             for message in messages:
                 sb_client.genereate_message(message, az_client)
-            print("[INF] Total events: " + str(sb_client.total_events_number()))
+            print("[INF] Collected events number: " + str(sb_client.total_events_number()))
             sb_client.send_events()
             trigger_container_app_job(container_app_job_resource_id, credential)
             return
         sleep(30) 
 
 def runner():
-
     container_app_job_resource_id = os.environ.get("CONTAINER_APP_JOB_RESOURCE_ID")  
 
     default_subscription = parse_resource_id(container_app_job_resource_id)[0]
-
+    
     credential = DefaultAzureCredential()  
     az_client = AzClient(default_subscription, credential)
+
+    sb_client = SBClient(service_bus_namespace, queue_name, credential)
 
     tenant_id = az_client.get_resource_by_id("/tenants","2022-12-01").additional_properties["value"][0]["tenantId"]
     
@@ -189,15 +193,22 @@ def runner():
 
     vault_client = SecretClient(vault_url, credential)
 
-    print(vault_client.get_secret(vault_secret).value)
+    spn_client = AzClient(default_subscription, ClientSecretCredential(tenant_id=tenant_id, client_id=spn_id, client_secret=vault_client.get_secret(vault_secret).value))
 
-    credential = ClientSecretCredential(tenant_id=tenant_id, client_id=spn_id, client_secret=vault_client.get_secret(vault_secret).value)
+    for message in sb_client.receive_message(delete):  
+        print("[INF] Processing message")
+        #vnet_data = json.loads(message.body)
+        if message.content_type == "application/json":
+            vnet_data = json.loads(str(message))
+            match vnet_data["action"]:
+                case "write":
+                    response = spn_client.get_resource_by_id(vnet_data["remoteVirtualNetworkId"],"2024-01-01")
+                    print(response)
 
-
-
-
+delete = False
 job_role = os.environ.get("JOB_ROLE").lower()
-service_bus_namespace = os.environ.get("SERVICE_BUS_NAMESPACE")    
+service_bus_name = os.environ.get("SERVICE_BUS_NAME")    
+service_bus_namespace = service_bus_name + ".servicebus.windows.net"
 queue_name = os.environ.get("SERVICE_BUS_QUEUE_NAME") 
 print("[INF] Running as " + job_role)
 
