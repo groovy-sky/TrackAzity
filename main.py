@@ -34,6 +34,7 @@ class AzClient:
         return response
 
     def get_resource_by_id(self, resource_id, api_ver=None):
+        failed = False
         if api_ver is None:
             api_ver = self.get_provider_latest_api_version(resource_id.split('/')[6], resource_id.split('/')[7])
         try:
@@ -41,7 +42,8 @@ class AzClient:
         except Exception as e:
             print("[ERR]" + str(e))
             response = ""
-        return response
+            failed = True
+        return response,failed
 
     def deploy_template(self, resource_group, template_file, parameters):
         print("[INF] Deploying template")
@@ -111,17 +113,18 @@ class SBClient:
         event_action = parsed['data']['authorization']['action'].split('/')
         match event_action[2]:
             case "virtualnetworkpeerings":
-                peering_info = az_client.get_resource_by_id(original_subject,"2024-01-01")
-                if peering_info != "":  
+                peering_info, fail = az_client.get_resource_by_id(original_subject,"2024-01-01")
+                if peering_info != "" and not fail:  
+                    subject=event_action[2]
                     body = json.dumps({"peeringState": peering_info.properties["provisioningState"],"peeringSyncLevel": peering_info.properties["peeringSyncLevel"],"remoteVirtualNetworkId": peering_info.properties["remoteVirtualNetwork"]["id"],"remoteAddressSpace":peering_info.properties["remoteAddressSpace"]["addressPrefixes"],"action":event_action[3]})
                 else:
-                    body = parsed
+                    subject="failed"
+                    body = json.dumps({"error": "Failed to get peering info about " + original_subject})
             case _:
                 print("[ERR] Unknown event type")
-                self.collected_events.append(ServiceBusMessage(body=parsed, subject="unknown", content_type="application/json"))
-                return
-        print ("[INF] Generated message: " + body)
-        self.collected_events.append(ServiceBusMessage(body=body, subject=event_action[2], content_type="application/json"))
+                subject="unknown"
+                body = json.dumps({"error": "Unknown event type " + event_action[2], "subject": original_subject})
+        self.collected_events.append(ServiceBusMessage(body=body, subject=subject, content_type="application/json"))
     
     def total_events_number(self):
         return len(self.collected_events)
@@ -184,26 +187,34 @@ def runner():
 
     sb_client = SBClient(service_bus_namespace, queue_name, credential)
 
-    tenant_id = az_client.get_resource_by_id("/tenants","2022-12-01").additional_properties["value"][0]["tenantId"]
+    response, fail = az_client.get_resource_by_id("/tenants","2022-12-01")
     
+    if fail:
+        print("[ERR] Failed to get tenant ID")
+        return
+    tenant_id = response.additional_properties["value"][0]["tenantId"]
+
     vault_name = os.environ.get("KEY_VAULT_NAME")
     vault_url = f"https://{vault_name}.vault.azure.net"
     spn_id = os.environ.get("SPN_ID")
-    vault_secret = os.environ.get("VAULT_SECRET")
 
     vault_client = SecretClient(vault_url, credential)
 
-    spn_client = AzClient(default_subscription, ClientSecretCredential(tenant_id=tenant_id, client_id=spn_id, client_secret=vault_client.get_secret(vault_secret).value))
+    spn_client = AzClient(default_subscription, ClientSecretCredential(tenant_id=tenant_id, client_id=spn_id, client_secret=vault_client.get_secret(spn_id).value))
 
     for message in sb_client.receive_message(delete):  
         print("[INF] Processing message")
         #vnet_data = json.loads(message.body)
         if message.content_type == "application/json":
-            vnet_data = json.loads(str(message))
-            match vnet_data["action"]:
+            peering_data = json.loads(str(message))
+            match peering_data["action"]:
                 case "write":
-                    response = spn_client.get_resource_by_id(vnet_data["remoteVirtualNetworkId"],"2024-01-01")
-                    print(response)
+                    vnet_info,fail = spn_client.get_resource_by_id(peering_data["remoteVirtualNetworkId"],"2024-01-01")
+                    if not fail:
+                        subnets = {}
+                        for subnet in vnet_info.properties["subnets"]:
+                            subnets[subnet["name"]] = subnet["properties"]["addressPrefix"]
+                        vnet_info = json.dumps({"vnetId":vnet_info.id,"location":vnet_info.location,"addressSpace":vnet_info.properties["addressSpace"]["addressPrefixes"],"subnets":subnets})
 
 delete = False
 job_role = os.environ.get("JOB_ROLE").lower()
