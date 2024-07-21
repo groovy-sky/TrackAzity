@@ -116,7 +116,7 @@ class SBClient:
                 peering_info, fail = az_client.get_resource_by_id(original_subject,"2024-01-01")
                 if peering_info != "" and not fail:  
                     subject=event_action[2]
-                    body = json.dumps({"peeringState": peering_info.properties["provisioningState"],"peeringSyncLevel": peering_info.properties["peeringSyncLevel"],"remoteVirtualNetworkId": peering_info.properties["remoteVirtualNetwork"]["id"],"remoteAddressSpace":peering_info.properties["remoteAddressSpace"]["addressPrefixes"],"action":event_action[3]})
+                    body = json.dumps({"peeringState": peering_info.properties["provisioningState"],"peeringSyncLevel": peering_info.properties["peeringSyncLevel"],"id": peering_info.properties["remoteVirtualNetwork"]["id"],"action":event_action[3]})
                 else:
                     subject="failed"
                     body = json.dumps({"error": "Failed to get peering info about " + original_subject})
@@ -206,15 +206,17 @@ def runner():
         print("[INF] Processing message")
         #vnet_data = json.loads(message.body)
         if message.content_type == "application/json":
-            peering_data = json.loads(str(message))
-            match peering_data["action"]:
+            peering_info = json.loads(str(message))
+            match peering_info["action"]:
                 case "write":
-                    vnet_info,fail = spn_client.get_resource_by_id(peering_data["remoteVirtualNetworkId"],"2024-01-01")
+                    vnet_info,fail = spn_client.get_resource_by_id(peering_info["id"],"2024-01-01")
                     if not fail:
                         subnets = {}
                         for subnet in vnet_info.properties["subnets"]:
                             subnets[subnet["name"]] = subnet["properties"]["addressPrefix"]
-                        vnet_info = json.dumps({"vnetId":vnet_info.id,"location":vnet_info.location,"addressSpace":vnet_info.properties["addressSpace"]["addressPrefixes"],"subnets":subnets})
+                        vnet_info = json.dumps({"name":vnet_info.name,"location":vnet_info.location,"addressSpace":vnet_info.properties["addressSpace"]["addressPrefixes"],"subnets":subnets})
+                        result = peering_info | json.loads(vnet_info)
+                        print(result)
 
 delete = False
 job_role = os.environ.get("JOB_ROLE").lower()

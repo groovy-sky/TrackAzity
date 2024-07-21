@@ -12,8 +12,6 @@ Microsoft.Resources.ResourceWriteSuccess
 
 https://github.com/Azure-Samples/container-apps-jobs
 
-https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-python-how-to-use-queues?tabs=passwordless
-
 https://learn.microsoft.com/en-us/azure/devops/service-hooks/services/webhooks?view=azure-devops
 
 
