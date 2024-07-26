@@ -4,6 +4,7 @@ from azure.mgmt.appcontainers import ContainerAppsAPIClient
 from azure.servicebus import ServiceBusMessage, ServiceBusClient, ServiceBusReceivedMessage
 from azure.identity import DefaultAzureCredential,ClientSecretCredential
 from azure.mgmt.resource import ResourceManagementClient
+from azure.data.tables import TableServiceClient
 from azure.keyvault.secrets import SecretClient
 from time import sleep    
 import json
@@ -134,7 +135,8 @@ class SBClient:
         for event in self.collected_events:
             self.send_message(event,queue_name=event.subject)
         self.collected_events = []
-  
+
+
 def parse_resource_id(resource_id):
     return resource_id.split('/')[2], resource_id.split('/')[4],resource_id.split('/')[6], resource_id.split('/')[8]
 
@@ -200,8 +202,17 @@ def runner():
 
     vault_client = SecretClient(vault_url, credential)
 
-    spn_client = AzClient(default_subscription, ClientSecretCredential(tenant_id=tenant_id, client_id=spn_id, client_secret=vault_client.get_secret(spn_id).value))
+    spn_credential = ClientSecretCredential(tenant_id=tenant_id, client_id=spn_id, client_secret=vault_client.get_secret(spn_id).value)
 
+    spn_client = AzClient(default_subscription, spn_credential)
+
+    table_client = TableServiceClient(credential = spn_credential, endpoint = "https://strg4storingips.table.core.windows.net").get_table_client("ipPlan")
+
+    for i in table_client.list_entities():
+        print(i)
+
+
+"""
     for message in sb_client.receive_message(delete):  
         print("[INF] Processing message")
         #vnet_data = json.loads(message.body)
@@ -217,6 +228,7 @@ def runner():
                         vnet_info = json.dumps({"name":vnet_info.name,"location":vnet_info.location,"addressSpace":vnet_info.properties["addressSpace"]["addressPrefixes"],"subnets":subnets})
                         result = peering_info | json.loads(vnet_info)
                         print(result)
+"""
 
 delete = False
 job_role = os.environ.get("JOB_ROLE").lower()

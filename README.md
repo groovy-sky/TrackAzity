@@ -3,10 +3,27 @@
 1. Init IP table (from file or Hub VNet)
 2. Allocate IP range
 
-Microsoft.Network/virtualNetworks/virtualNetworkPeerings/write
-Microsoft.Network/virtualNetworks/peer/action
+RG
+DvL08g2ULxDxn6
 
-Microsoft.Resources.ResourceWriteSuccess
+STRG
+strg4whurqk7qms9x4
+
+VAULT
+vault4rkz6qu72uqfbfa
+
+VNET
+vnet-lwxlt98lt28id9
+
+Event Grid
+event-grid-z85u0167jc913j
+
+Event Topic
+event-topic-lgddktlx6c0eol
+
+0. Deploy ARM
+1. Assign to Event Topic Storage Queue Sender role
+2. Configure Event triggering
 
 [Trigger Job by Service Bus]https://techcommunity.microsoft.com/t5/apps-on-azure-blog/deploying-an-event-driven-job-with-azure-container-app-job-and/ba-p/3909279
 
@@ -14,6 +31,9 @@ https://github.com/Azure-Samples/container-apps-jobs
 
 https://learn.microsoft.com/en-us/azure/devops/service-hooks/services/webhooks?view=azure-devops
 
+[Table Python client](https://pypi.org/project/azure-data-tables/)
+
+[Table examples](https://github.com/Azure/azure-sdk-for-python/blob/main/sdk/tables/azure-data-tables/samples/sample_insert_delete_entities.py#L67-L73)
 
 [Code examples](https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/servicebus/azure-servicebus/samples)
 
@@ -26,6 +46,8 @@ https://learn.microsoft.com/en-us/azure/devops/service-hooks/services/webhooks?v
 [Azure Python SDK samples](https://github.com/Azure-Samples/azure-samples-python-management/tree/main/samples/resources)
 
 [ResourcesOperations Class Methods](https://learn.microsoft.com/en-us/python/api/azure-mgmt-resource/azure.mgmt.resource.resources.v2021_04_01.operations.resourcesoperations?view=azure-python)
+
+[Azure Tables client library for Python](https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/tables/azure-data-tables)
 
 https://learn.microsoft.com/en-us/azure/container-apps/jobs?tabs=azure-cli#scheduled-jobs
 
@@ -103,35 +125,6 @@ az containerapp job create \
 
 ```
 
-```
-
-credential = DefaultAzureCredential()
-
-spoke_sub_id = os.environ["AZURE_SUBSCRIPTION_ID"]
-spoke_res_grp = "exampleGroup"
-spoke_ip = "192.168.150.0/24"
-spoke_vnet_name = "exampleVnet4"
-spoke_resource_id = "/subscriptions/" + spoke_sub_id + "/resourceGroups/" + spoke_res_grp + "/providers/Microsoft.Network/virtualNetworks/" + spoke_vnet_name
-
-spoke = TemplateDeployer(spoke_sub_id, credential)
-
-
-print(spoke.deploy_template(spoke_res_grp, "vnet_init.json", {"vnetAddressPrefix": {"value": spoke_ip},"vnetName": {"value": spoke_vnet_name},"createSubnet":{"value":True}}))
-
-hub_res_id = os.environ["HUB_VNET_ID"]
-
-spoke.deploy_template(spoke_res_grp, "vnet_peering.json", {"vnetName": {"value": spoke_vnet_name},"remoteVnetId": {"value": hub_res_id},"peeringName":{ "value": "hubToSpoke"}})
-```
-
-```
-
-fully_qualified_namespace = os.environ['SERVICEBUS_FULLY_QUALIFIED_NAMESPACE']
-queue_name = os.environ["SERVICEBUS_QUEUE_NAME"]
-
-sb = SBClient(fully_qualified_namespace, queue_name)
-sb.send_message('Msg')
-sb.receive_message()
-```
 
 ```
     parser = argparse.ArgumentParser(description="Reserve an IP range")  
@@ -160,4 +153,16 @@ spoke = AzClient(spoke_sub_id, credential)
 # print(spoke.get_resource("exampleGroup", "Microsoft.Network", "virtualNetworks", "exampleVnet", "2020-06-01"))
 print(len(spoke.get_resource_by_id(hub_res_id+'aaa')))
 # print(spoke.check_resource_existence("exampleGroup", "exampleVnet"))
+```
+
+```
+from azure.identity import DefaultAzureCredential
+from azure.storage.blob import BlobServiceClient
+
+# Acquire a credential object
+token_credential = DefaultAzureCredential()
+
+blob_service_client = BlobServiceClient(
+        account_url="https://<my_account_name>.blob.core.windows.net",
+        credential=token_credential)
 ```
