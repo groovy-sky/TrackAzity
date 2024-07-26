@@ -23,7 +23,8 @@ event-topic-lgddktlx6c0eol
 
 0. Deploy ARM
 1. Assign to Event Topic Storage Queue Sender role
-2. Configure Event triggering
+2. Assign to App Job Queue Reciever role
+3. Configure Event triggering
 
 [Trigger Job by Service Bus]https://techcommunity.microsoft.com/t5/apps-on-azure-blog/deploying-an-event-driven-job-with-azure-container-app-job-and/ba-p/3909279
 
