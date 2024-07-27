@@ -6,6 +6,50 @@ import os
 import base64
 import json
 import hashlib
+import socket  
+import struct  
+
+ip_mask = {  
+    1: 2147483648,  
+    2: 1073741824,  
+    3: 536870912,  
+    4: 268435456,  
+    5: 134217728,  
+    6: 67108864,  
+    7: 33554432,  
+    8: 16777216,  
+    9: 8388608,  
+    10: 4194304,  
+    11: 2097152,  
+    12: 1048576,  
+    13: 524288,  
+    14: 262144,  
+    15: 131072,  
+    16: 65536,  
+    17: 32768,  
+    18: 16384,  
+    19: 8192,  
+    20: 4096,  
+    21: 2048,  
+    22: 1024,  
+    23: 512,  
+    24: 256,  
+    25: 128,  
+    26: 64,  
+    27: 32,  
+    28: 16,  
+    29: 8,  
+    30: 4,  
+    31: 2,  
+    32: 1  
+}  
+
+
+  
+def cidr_to_int(cidr):  
+    ip, prefix = cidr.split('/')  
+    ip_long = struct.unpack("!L", socket.inet_aton(ip))[0]  
+    return hex((ip_long << 32) + ip_mask[int(prefix)])  
 
 class AzClient:
     def __init__(self, subscription_id, credential):
@@ -136,7 +180,16 @@ def main():
             vnet_info, fail = az_client.get_resource_by_id(peering_info.properties["remoteVirtualNetwork"]["id"],"2024-01-01")
             if vnet_info != "" and not fail:
                 for ip in vnet_info.properties["addressSpace"]["addressPrefixes"]:
-                    partition = hashlib.sha1(peering_info.properties["remoteVirtualNetwork"]["id"].encode()).hexdigest()
-                    table.upsert({"PartitionKey": partition, "RowKey": hashlib.md5(partition.encode()).hexdigest(), "IP": ip, "peeringState": peering_info.properties["peeringState"]})
+                    partition = cidr_to_int(ip)[2:]
+                    subnets = {}
+                    for subnet in vnet_info.properties["subnets"]:
+                        subnets[subnet["name"]] = subnet["properties"]["addressPrefixes"][0]
+                    subscription_id = vnet_info.id.split('/')[2]
+                    subscription_info, fail = az_client.get_resource_by_id("/subscriptions/" + subscription_id, "2022-12-01")
+                    if not fail:
+                        subscription_name = subscription_info.additional_properties["displayName"]
+                    else:
+                        subscription_name = "Unknown"
+                    table.upsert({"PartitionKey":  partition, "RowKey":hashlib.md5(partition.encode()).hexdigest(), "IP": ip, "PeeringState": peering_info.properties["peeringState"], "VNetName": vnet_info.name,"VNetID": vnet_info.id,"PeeringSyncLevel": peering_info.properties["peeringSyncLevel"],"Subnets": json.dumps(subnets),"SubscriptionID": subscription_id, "SubscriptionName": subscription_name})
 
 main()
