@@ -44,8 +44,6 @@ ip_mask = {
     32: 1  
 }  
 
-
-  
 def cidr_to_int(cidr):  
     ip, prefix = cidr.split('/')  
     ip_long = struct.unpack("!L", socket.inet_aton(ip))[0]  
@@ -166,30 +164,32 @@ def main():
     storage_name = os.environ.get("STORAGE_NAME")
     queue_name = os.environ.get("QUEUE_NAME") 
     table_name = os.environ.get("TABLE_NAME")
+    default_subscription = "00000000-0000-0000-0000-000000000000"
 
     cred = DefaultAzureCredential()
+
     queue = QueueClient(storage_name, cred)
-
-    table = TableClient(storage_name, table_name, cred)
-
-    default_subscription = "00000000-0000-0000-0000-000000000000"
+    table = TableClient(storage_name, table_name, cred)    
     az_client = AzClient(default_subscription, cred)
     for item in queue.receive(queue_name):
-        peering_info, fail = az_client.get_resource_by_id(json.loads(item).get("subject"),"2024-01-01")
-        if peering_info != "" and not fail:  
-            vnet_info, fail = az_client.get_resource_by_id(peering_info.properties["remoteVirtualNetwork"]["id"],"2024-01-01")
-            if vnet_info != "" and not fail:
-                for ip in vnet_info.properties["addressSpace"]["addressPrefixes"]:
-                    partition = cidr_to_int(ip)[2:]
-                    subnets = {}
-                    for subnet in vnet_info.properties["subnets"]:
-                        subnets[subnet["name"]] = subnet["properties"]["addressPrefixes"][0]
-                    subscription_id = vnet_info.id.split('/')[2]
-                    subscription_info, fail = az_client.get_resource_by_id("/subscriptions/" + subscription_id, "2022-12-01")
-                    if not fail:
-                        subscription_name = subscription_info.additional_properties["displayName"]
-                    else:
-                        subscription_name = "Unknown"
-                    table.upsert({"PartitionKey":  partition, "RowKey":hashlib.md5(partition.encode()).hexdigest(), "IP": ip, "PeeringState": peering_info.properties["peeringState"], "VNetName": vnet_info.name,"VNetID": vnet_info.id,"PeeringSyncLevel": peering_info.properties["peeringSyncLevel"],"Subnets": json.dumps(subnets),"SubscriptionID": subscription_id, "SubscriptionName": subscription_name})
+        event = json.loads(item)
+        match event.get("eventType"):
+            case "Microsoft.Resources.ResourceWriteSuccess":
+                peering_info, fail = az_client.get_resource_by_id(event.get("subject"),"2024-01-01")
+                if peering_info != "" and not fail:  
+                    vnet_info, fail = az_client.get_resource_by_id(peering_info.properties["remoteVirtualNetwork"]["id"],"2024-01-01")
+                    if vnet_info != "" and not fail:
+                        for ip in vnet_info.properties["addressSpace"]["addressPrefixes"]:
+                            available_ip_num = cidr_to_int(ip)[2:]
+                            subnets = {}
+                            for subnet in vnet_info.properties["subnets"]:
+                                subnets[subnet["name"]] = subnet["properties"]["addressPrefixes"][0]
+                            subscription_id = vnet_info.id.split('/')[2]
+                            subscription_info, fail = az_client.get_resource_by_id("/subscriptions/" + subscription_id, "2022-12-01")
+                            if not fail:
+                                subscription_name = subscription_info.additional_properties["displayName"]
+                            else:
+                                subscription_name = "Unknown"
+                            table.upsert({"PartitionKey":  available_ip_num, "RowKey":hashlib.md5(available_ip_num.encode()).hexdigest(), "IP": ip, "AddressCount":ip_mask[int(ip.split('/')[1])], "IsInUse":True,"PeeringState": peering_info.properties["peeringState"], "VNetName": vnet_info.name,"VNetID": vnet_info.id,"PeeringSyncLevel": peering_info.properties["peeringSyncLevel"],"Subnets": json.dumps(subnets),"SubscriptionID": subscription_id, "SubscriptionName": subscription_name,"LatestEvent":event.get("eventType"),"Location":vnet_info.location})
 
 main()
