@@ -135,6 +135,10 @@ class TableClient:
         print("[INF] Querying table")
         return self.client.query_entities(query)
     
+    def get_entity(self, key):
+        print("[INF] Getting entity from table")
+        return self.client.get_entity(key["PartitionKey"], key["RowKey"])
+    
     def delete(self, entity):
         print("[INF] Deleting entity from table")
         self.client.delete_entity(entity["PartitionKey"], entity["RowKey"])
@@ -162,34 +166,67 @@ class QueueClient:
 
 def main():
     storage_name = os.environ.get("STORAGE_NAME")
-    queue_name = os.environ.get("QUEUE_NAME") 
-    table_name = os.environ.get("TABLE_NAME")
-    default_subscription = "00000000-0000-0000-0000-000000000000"
-
+    queue_name = os.environ.get("QUEUE_NAME", "virtualnetworkpeerings")
+    default_subscription = os.environ.get("DEFAULT_SUBSCRIPTION", "00000000-0000-0000-0000-000000000000")
+    hub_id = os.environ.get("HUB_ID","")
+    
     cred = DefaultAzureCredential()
 
-    queue = QueueClient(storage_name, cred)
-    table = TableClient(storage_name, table_name, cred)    
+    ips_table = TableClient(storage_name, os.environ.get("TABLE_NAME", "ips"), cred)
+    system_table = TableClient(storage_name, "system", cred)
     az_client = AzClient(default_subscription, cred)
-    for item in queue.receive(queue_name):
-        event = json.loads(item)
-        match event.get("eventType"):
-            case "Microsoft.Resources.ResourceWriteSuccess":
-                peering_info, fail = az_client.get_resource_by_id(event.get("subject"),"2024-01-01")
-                if peering_info != "" and not fail:  
-                    vnet_info, fail = az_client.get_resource_by_id(peering_info.properties["remoteVirtualNetwork"]["id"],"2024-01-01")
-                    if vnet_info != "" and not fail:
-                        for ip in vnet_info.properties["addressSpace"]["addressPrefixes"]:
-                            available_ip_num = cidr_to_int(ip)[2:]
-                            subnets = {}
-                            for subnet in vnet_info.properties["subnets"]:
-                                subnets[subnet["name"]] = subnet["properties"]["addressPrefixes"][0]
-                            subscription_id = vnet_info.id.split('/')[2]
-                            subscription_info, fail = az_client.get_resource_by_id("/subscriptions/" + subscription_id, "2022-12-01")
-                            if not fail:
-                                subscription_name = subscription_info.additional_properties["displayName"]
-                            else:
-                                subscription_name = "Unknown"
-                            table.upsert({"PartitionKey":  available_ip_num, "RowKey":hashlib.md5(available_ip_num.encode()).hexdigest(), "IP": ip, "AddressCount":ip_mask[int(ip.split('/')[1])], "IsInUse":True,"PeeringState": peering_info.properties["peeringState"], "VNetName": vnet_info.name,"VNetID": vnet_info.id,"PeeringSyncLevel": peering_info.properties["peeringSyncLevel"],"Subnets": json.dumps(subnets),"SubscriptionID": subscription_id, "SubscriptionName": subscription_name,"LatestEvent":event.get("eventType"),"Location":vnet_info.location})
+
+    match os.environ.get("JOB_ROLE").lower():
+        case "collector":
+            queue = QueueClient(storage_name, cred)
+            subscriptions_map = {}
+            for item in queue.receive(queue_name):
+                event = json.loads(item)
+                match event.get("eventType"):
+                    case "Microsoft.Resources.ResourceWriteSuccess":
+                        if hub_id == "" or hub_id not in event.get("subject"):
+                            hub_id = event.get("subject").split('/virtualNetworkPeerings/')[0]
+                            system_table.upsert({"PartitionKey": default_subscription, "RowKey": "","Value":hub_id})
+                        peering_info, fail = az_client.get_resource_by_id(event.get("subject"),"2024-01-01")
+                        if peering_info != "" and not fail:  
+                            vnet_info, fail = az_client.get_resource_by_id(peering_info.properties["remoteVirtualNetwork"]["id"],"2024-01-01")
+                            if vnet_info != "" and not fail:
+                                for ip in vnet_info.properties["addressSpace"]["addressPrefixes"]:
+                                    available_ip_num = cidr_to_int(ip)[2:]
+                                    subnets = {}
+                                    for subnet in vnet_info.properties["subnets"]:
+                                        subnets[subnet["name"]] = subnet["properties"]["addressPrefixes"][0]
+                                    subscription_id = vnet_info.id.split('/')[2]
+                                    subscription_info, fail = az_client.get_resource_by_id("/subscriptions/" + subscription_id, "2022-12-01")
+                                    if not fail:
+                                        subscription_name = subscription_info.additional_properties["displayName"]
+                                        subscriptions_map[subscription_id] = subscription_name
+                                    else:
+                                        subscription_name = "Unknown"
+                                    ips_table.upsert({"PartitionKey":  available_ip_num, "RowKey":hashlib.md5(available_ip_num.encode()).hexdigest(), "IP": ip, "AddressCount":ip_mask[int(ip.split('/')[1])], "Used":True,"PeeringState": peering_info.properties["peeringState"], "VNetName": vnet_info.name,"VNetID": vnet_info.id,"PeeringSyncLevel": peering_info.properties["peeringSyncLevel"],"Subnets": json.dumps(subnets),"SubscriptionID": subscription_id, "LatestEvent":event.get("eventType"),"Location":vnet_info.location,"AdditionalData":"","Disabled":False})
+            for key in subscriptions_map:
+                system_table.upsert({"PartitionKey": key, "RowKey": "","Value":subscriptions_map[key]})
+        case "initiator":
+            spoke_ips = os.environ.get("SPOKE_IP_RANGES","")
+            if hub_id =="":
+                hub_id = system_table.get_entity({"PartitionKey": default_subscription, "RowKey": ""}).get("Value")
+                if hub_id == "":
+                    print("[ERR] Hub ID not found")
+                    return
+            if spoke_ips == "":
+                hub_info, fail = az_client.get_resource_by_id(hub_id, "2024-01-01")
+                if fail:
+                    print("[ERR] Hub not found")
+                    return
+                if hub_info.tags["SpokeAddressPrefixes"] == "":
+                    print("[ERR] Spoke IP ranges not found")
+                    return
+                spoke_ips = hub_info.tags["SpokeAddressPrefixes"].split(',')
+            for ip in spoke_ips:
+                available_ip_num = cidr_to_int(ip)[:2]
+                ips_table.upsert({"PartitionKey":  available_ip_num, "RowKey":hashlib.md5(available_ip_num.encode()).hexdigest(), "IP": ip, "AddressCount":ip_mask[int(ip.split('/')[1])], "Used":False})
+        case "allocator":
+            for ip in ips_table.query("Disabled eq false and ChildrenKeys gt '0'"):
+                print(ip)
 
 main()

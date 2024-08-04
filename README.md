@@ -3,6 +3,8 @@
 1. Init IP table (from file or Hub VNet)
 2. Allocate IP range
 
+A tag value can have a maximum of 256 characters.
+
 RG
 DvL08g2ULxDxn6
 
