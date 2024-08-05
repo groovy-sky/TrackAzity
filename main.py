@@ -133,6 +133,7 @@ class TableClient:
 
     def query(self, query):
         print("[INF] Querying table")
+        # return query result and size of result
         return self.client.query_entities(query)
     
     def get_entity(self, key):
@@ -143,6 +144,37 @@ class TableClient:
         print("[INF] Deleting entity from table")
         self.client.delete_entity(entity["PartitionKey"], entity["RowKey"])
 
+    def create_ip_entity(self, cidr, peering_state, vnet_name, vnet_id, peering_sync_level, subnets, subscription_id, latest_event, location, additional_data):
+        print("[INF] Creating IP entity")
+        hex_ip = cidr_to_int(cidr)
+        if vnet_name == "":
+            vnet_is_used = False
+        else:
+            vnet_is_used = True
+        entity = {
+            "PartitionKey": hex_ip,
+            "RowKey": hashlib.md5(hex_ip.encode()).hexdigest(),
+            "IP": cidr,
+            "AddressCount": ip_mask[int(cidr.split('/')[1])],
+            "Used": vnet_is_used,
+            "PeeringState": peering_state,
+            "VNetName": vnet_name,
+            "VNetID": vnet_id,
+            "PeeringSyncLevel": peering_sync_level,
+            "Subnets": subnets,
+            "SubscriptionID": subscription_id,
+            "LatestEvent": latest_event,
+            "Location": location,
+            "AdditionalData": additional_data
+        }
+        self.upsert(entity)
+    def get_ip_entity(self, cidr):
+        try:
+            result = self.get_entity({"PartitionKey": cidr_to_int(cidr), "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest()})
+        except Exception as e:
+            return "",False
+        return result,True
+    
 class QueueClient:
     def __init__(self, account, credential):
         print("[INF] Initializing Azure Queue Client")
@@ -192,7 +224,6 @@ def main():
                             vnet_info, fail = az_client.get_resource_by_id(peering_info.properties["remoteVirtualNetwork"]["id"],"2024-01-01")
                             if vnet_info != "" and not fail:
                                 for ip in vnet_info.properties["addressSpace"]["addressPrefixes"]:
-                                    available_ip_num = cidr_to_int(ip)[2:]
                                     subnets = {}
                                     for subnet in vnet_info.properties["subnets"]:
                                         subnets[subnet["name"]] = subnet["properties"]["addressPrefixes"][0]
@@ -203,7 +234,8 @@ def main():
                                         subscriptions_map[subscription_id] = subscription_name
                                     else:
                                         subscription_name = "Unknown"
-                                    ips_table.upsert({"PartitionKey":  available_ip_num, "RowKey":hashlib.md5(available_ip_num.encode()).hexdigest(), "IP": ip, "AddressCount":ip_mask[int(ip.split('/')[1])], "Used":True,"PeeringState": peering_info.properties["peeringState"], "VNetName": vnet_info.name,"VNetID": vnet_info.id,"PeeringSyncLevel": peering_info.properties["peeringSyncLevel"],"Subnets": json.dumps(subnets),"SubscriptionID": subscription_id, "LatestEvent":event.get("eventType"),"Location":vnet_info.location,"AdditionalData":"","Disabled":False})
+                                    ips_table.create_ip_entity(ip, peering_info.properties["peeringState"], vnet_info.name, vnet_info.id, peering_info.properties["peeringSyncLevel"], json.dumps(subnets), subscription_id, event.get("eventType"), vnet_info.location, "")
+                                    #ips_table.upsert({"PartitionKey":  available_ip_num, "RowKey":hashlib.md5(available_ip_num.encode()).hexdigest(), "IP": ip, "AddressCount":ip_mask[int(ip.split('/')[1])], "Used":True,"PeeringState": peering_info.properties["peeringState"], "VNetName": vnet_info.name,"VNetID": vnet_info.id,"PeeringSyncLevel": peering_info.properties["peeringSyncLevel"],"Subnets": json.dumps(subnets),"SubscriptionID": subscription_id, "LatestEvent":event.get("eventType"),"Location":vnet_info.location,"AdditionalData":"","Disabled":False})
             for key in subscriptions_map:
                 system_table.upsert({"PartitionKey": key, "RowKey": "","Value":subscriptions_map[key]})
         case "initiator":
@@ -221,10 +253,13 @@ def main():
                 if hub_info.tags["SpokeAddressPrefixes"] == "":
                     print("[ERR] Spoke IP ranges not found")
                     return
-                spoke_ips = hub_info.tags["SpokeAddressPrefixes"].split(',')
-            for ip in spoke_ips:
-                available_ip_num = cidr_to_int(ip)[:2]
-                ips_table.upsert({"PartitionKey":  available_ip_num, "RowKey":hashlib.md5(available_ip_num.encode()).hexdigest(), "IP": ip, "AddressCount":ip_mask[int(ip.split('/')[1])], "Used":False})
+                spoke_ips = hub_info.tags["SpokeAddressPrefixes"]
+            for ip in spoke_ips.split(','):
+                result, exists = ips_table.get_ip_entity(ip)
+                if not exists:
+                    ips_table.create_ip_entity(ip, "", "", "", "", "", "", "", "","")
+                else:
+                    print("[INF] Record already exists: " + str(result))
         case "allocator":
             for ip in ips_table.query("Disabled eq false and ChildrenKeys gt '0'"):
                 print(ip)
