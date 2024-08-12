@@ -8,6 +8,7 @@ import json
 import hashlib
 import socket  
 import struct  
+import ipaddress  
 
 ip_mask = {  
     1: 2147483648,  
@@ -198,7 +199,7 @@ class QueueClient:
 
 def main():
     storage_name = os.environ.get("STORAGE_NAME")
-    queue_name = os.environ.get("QUEUE_NAME", "virtualnetworkpeerings")
+    queue_name = os.environ.get("QUEUE_NAME", "")
     default_subscription = os.environ.get("DEFAULT_SUBSCRIPTION", "00000000-0000-0000-0000-000000000000")
     hub_id = os.environ.get("HUB_ID","")
     
@@ -210,6 +211,8 @@ def main():
 
     match os.environ.get("JOB_ROLE").lower():
         case "collector":
+            if queue_name == "":
+                queue_name = "virtualnetworkpeerings"
             queue = QueueClient(storage_name, cred)
             subscriptions_map = {}
             for item in queue.receive(queue_name):
@@ -261,7 +264,42 @@ def main():
                 else:
                     print("[INF] Record already exists: " + str(result))
         case "allocator":
-            for ip in ips_table.query("Disabled eq false and ChildrenKeys gt '0'"):
+            if queue_name == "":
+                queue_name = "ipsallocation"
+            queue = QueueClient(storage_name, cred)
+            for item in queue.receive(queue_name, recieve_only=True):
+                event = json.loads(item)
+                vnet_subscription = event.get("SubscriptionID")
+                vnet_name = event.get("VNetName")
+                match event.get("eventType"):
+                    case "Custom.IP.Allocation":
+                        requested_size = int(event.get("mask"))
+                        query_size = requested_size
+                        while query_size > 1:
+                            result = ips_table.query("Used eq false and ChildKeys eq '' and AddressCount eq {size}".format(size = ip_mask[query_size]))
+                            try :
+                                next_result = result.next()
+                                ips_table.upsert({"PartitionKey": next_result["PartitionKey"], "RowKey": next_result["RowKey"], "Used": True, "VNetName": vnet_name, "SubscriptionID": vnet_subscription, "LatestEvent": event.get("eventType")})
+                                break
+                            except:
+                                next_result = []
+                            if len(next_result) > 0:
+                                # Split the IP range to requested size and update the table. Should mark original IP as disabled, create new IPs with the split range and store their parent key into ChildKeys
+                                # Should repeat splitting until the requested_size is reached
+                                cidr = next_result["IP"]
+                                network = ipaddress.ip_network(cidr, strict=False)  
+                                child_keys = []
+                                for ip in network.subnets(new_prefix=requested_size):
+                                    ips_table.create_ip_entity(str(ip), "", "", "", "", "", "", "", "","")
+                                    child_keys.append(cidr_to_int(str(ip)))
+                                ips_table.upsert({"PartitionKey": cidr_to_int(cidr), "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest(), "ChildKeys": ",".join(child_keys)})
+                                query_size = requested_size
+                            else:
+                                query_size -= 1
+                        
+                    case "Custom.IP.Release":
+                        pass
+            for ip in ips_table.query("ChildrenKeys gt '0'"):
                 print(ip)
 
 main()
