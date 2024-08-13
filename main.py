@@ -202,12 +202,15 @@ def main():
     queue_name = os.environ.get("QUEUE_NAME", "")
     default_subscription = os.environ.get("DEFAULT_SUBSCRIPTION", "00000000-0000-0000-0000-000000000000")
     hub_id = os.environ.get("HUB_ID","")
+    debug = True
     
     cred = DefaultAzureCredential()
 
     ips_table = TableClient(storage_name, os.environ.get("TABLE_NAME", "ips"), cred)
     system_table = TableClient(storage_name, "system", cred)
     az_client = AzClient(default_subscription, cred)
+
+    result = ips_table.query("Used eq false and AddressCount eq {size}".format(size = ip_mask[16]))
 
     match os.environ.get("JOB_ROLE").lower():
         case "collector":
@@ -267,7 +270,7 @@ def main():
             if queue_name == "":
                 queue_name = "ipsallocation"
             queue = QueueClient(storage_name, cred)
-            for item in queue.receive(queue_name, recieve_only=True):
+            for item in queue.receive(queue_name, recieve_only=debug):
                 event = json.loads(item)
                 vnet_subscription = event.get("SubscriptionID")
                 vnet_name = event.get("VNetName")
@@ -276,7 +279,8 @@ def main():
                         requested_size = int(event.get("mask"))
                         query_size = requested_size
                         while query_size > 1:
-                            result = ips_table.query("Used eq false and ChildKeys eq '' and AddressCount eq {size}".format(size = ip_mask[query_size]))
+                            print("[INF] Searching for IP with size: " + str(query_size))
+                            result = ips_table.query("Used eq false and AddressCount eq {size}".format(size = ip_mask[query_size]))
                             try :
                                 next_result = result.next()
                                 ips_table.upsert({"PartitionKey": next_result["PartitionKey"], "RowKey": next_result["RowKey"], "Used": True, "VNetName": vnet_name, "SubscriptionID": vnet_subscription, "LatestEvent": event.get("eventType")})
@@ -292,11 +296,11 @@ def main():
                                 for ip in network.subnets(new_prefix=requested_size):
                                     ips_table.create_ip_entity(str(ip), "", "", "", "", "", "", "", "","")
                                     child_keys.append(cidr_to_int(str(ip)))
-                                ips_table.upsert({"PartitionKey": cidr_to_int(cidr), "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest(), "ChildKeys": ",".join(child_keys)})
+                                ips_table.upsert({"PartitionKey": cidr_to_int(cidr), "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest(), "ChildKeys": ",".join(child_keys),"Used":True})
                                 query_size = requested_size
+                                break
                             else:
                                 query_size -= 1
-                        
                     case "Custom.IP.Release":
                         pass
             for ip in ips_table.query("ChildrenKeys gt '0'"):
