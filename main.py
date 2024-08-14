@@ -175,6 +175,18 @@ class TableClient:
         except Exception as e:
             return "",False
         return result,True
+    def reserve_ip_entity(self, cidr, vnet_name, subscription_id, latest_event):
+        print("[INF] Reserving IP entity")
+        hex_ip = cidr_to_int(cidr)
+        entity = {
+            "PartitionKey": hex_ip,
+            "RowKey": hashlib.md5(hex_ip.encode()).hexdigest(),
+            "Used": True,
+            "VNetName": vnet_name,
+            "SubscriptionID": subscription_id,
+            "LatestEvent": latest_event
+        }
+        self.upsert(entity)
     
 class QueueClient:
     def __init__(self, account, credential):
@@ -202,7 +214,7 @@ def main():
     queue_name = os.environ.get("QUEUE_NAME", "")
     default_subscription = os.environ.get("DEFAULT_SUBSCRIPTION", "00000000-0000-0000-0000-000000000000")
     hub_id = os.environ.get("HUB_ID","")
-    debug = True
+    debug = False
     
     cred = DefaultAzureCredential()
 
@@ -274,33 +286,35 @@ def main():
                 event = json.loads(item)
                 vnet_subscription = event.get("SubscriptionID")
                 vnet_name = event.get("VNetName")
-                match event.get("eventType"):
+                latest_evnet = event.get("eventType")
+                match latest_evnet:
                     case "Custom.IP.Allocation":
                         requested_size = int(event.get("mask"))
                         query_size = requested_size
                         while query_size > 1:
                             print("[INF] Searching for IP with size: " + str(query_size))
-                            result = ips_table.query("Used eq false and AddressCount eq {size}".format(size = ip_mask[query_size]))
-                            try :
-                                next_result = result.next()
-                                ips_table.upsert({"PartitionKey": next_result["PartitionKey"], "RowKey": next_result["RowKey"], "Used": True, "VNetName": vnet_name, "SubscriptionID": vnet_subscription, "LatestEvent": event.get("eventType")})
-                                break
-                            except:
+                            result = ips_table.query("Used eq false and AddressCount eq {size}".format(size=ip_mask[query_size]))
+                            try:
+                                next_result = next(result)
+                                if query_size == requested_size:
+                                    ips_table.reserve_ip_entity(next_result["IP"], vnet_name, vnet_subscription, latest_evnet)
+                                else:
+                                    # Split the IP range to requested size and update the table. Should mark original IP as disabled, create new IPs with the split range and store their parent key into ChildKeys
+                                    cidr = next_result["IP"]
+                                    network = ipaddress.ip_network(cidr, strict=False)
+                                    child_keys = []
+                                    new_size_ip = ""
+                                    for ip in network.subnets(new_prefix=requested_size):
+                                        ip = str(ip)
+                                        ips_table.create_ip_entity(ip, "", "", "", "", "", "", "", "", "")
+                                        child_keys.append(cidr_to_int(ip))
+                                        new_size_ip = ip
+                                    ips_table.upsert({"PartitionKey": cidr_to_int(cidr), "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest(), "ChildKeys": ",".join(child_keys), "Used": True})
+                                    ips_table.reserve_ip_entity(new_size_ip, vnet_name, vnet_subscription, latest_evnet)
+                                return
+                            except StopIteration:
                                 next_result = []
-                            if len(next_result) > 0:
-                                # Split the IP range to requested size and update the table. Should mark original IP as disabled, create new IPs with the split range and store their parent key into ChildKeys
-                                # Should repeat splitting until the requested_size is reached
-                                cidr = next_result["IP"]
-                                network = ipaddress.ip_network(cidr, strict=False)  
-                                child_keys = []
-                                for ip in network.subnets(new_prefix=requested_size):
-                                    ips_table.create_ip_entity(str(ip), "", "", "", "", "", "", "", "","")
-                                    child_keys.append(cidr_to_int(str(ip)))
-                                ips_table.upsert({"PartitionKey": cidr_to_int(cidr), "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest(), "ChildKeys": ",".join(child_keys),"Used":True})
-                                query_size = requested_size
-                                break
-                            else:
-                                query_size -= 1
+                            query_size -= 1
                     case "Custom.IP.Release":
                         pass
             for ip in ips_table.query("ChildrenKeys gt '0'"):
