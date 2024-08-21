@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "vnetName": {
+    "type": "string"
+    },
+    "vnetSubscription":{
+    "type": "string"
+    },
+    "vnetResourceGroup": {
+    "type": "string"
+    },
+    "vnetSize": {
+    "type": "int",
+    "allowedValues": [16,17,18,19,20,21,22,23,24,25,26,27,28,29]
+    },
+    "location": {
+    "type": "string",
+    "defaultValue": "WestEurope",
+    "allowedValues": ["WestEurope","NorthEurope","SwedenCentral"]
+    },
+    "deployTime":{
+    "type": "int",
+    "defaultValue": "[dateTimeToEpoch(dateTimeAdd(utcNow(), 'P1Y'))]"
+    }
+  },
+  "variables": {
+    "vnetId": "[concat('/subscriptions/',parameters('vnetSubscription'),'/resourceGroups/',parameters('vnetResourceGroup'),'/providers/Microsoft.Network/virtualNetworks/',parameters('vnetName'))]"
+  },
+  "resources": {},
+  "outputs": {
+    "vnetId": {
+    "type": "string",
+    "value": "[variables('vnetId')]"
+    },
+    "deployTime":{
+    "type": "int",
+    "value": "[parameters('deployTime')]"
+    }
+  }
+}

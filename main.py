@@ -76,7 +76,7 @@ class AzClient:
         return response
 
     def get_resource_by_id(self, resource_id, api_ver=None):
-        failed = False
+        success = True
         if api_ver is None:
             api_ver = self.get_provider_latest_api_version(resource_id.split('/')[6], resource_id.split('/')[7])
         try:
@@ -84,8 +84,8 @@ class AzClient:
         except Exception as e:
             print("[ERR]" + str(e))
             response = ""
-            failed = True
-        return response,failed
+            success = False
+        return response, success
 
     def deploy_template(self, resource_group, template_file, parameters):
         print("[INF] Deploying template")
@@ -175,18 +175,46 @@ class TableClient:
         except Exception as e:
             return "",False
         return result,True
-    def reserve_ip_entity(self, cidr, vnet_name, subscription_id, latest_event):
+    def reserve_ip_entity(self, cidr, vnet_id, location, latest_event, additional_data = ""):
         print("[INF] Reserving IP entity")
+        vnet_subscription = vnet_id.split('/')[2]
+        vnet_name = vnet_id.split('/')[8]
         hex_ip = cidr_to_int(cidr)
         entity = {
             "PartitionKey": hex_ip,
             "RowKey": hashlib.md5(hex_ip.encode()).hexdigest(),
             "Used": True,
+            "SubscriptionID": vnet_subscription,
             "VNetName": vnet_name,
-            "SubscriptionID": subscription_id,
-            "LatestEvent": latest_event
+            "VNetID": vnet_id,
+            "Location": location,
+            "LatestEvent": latest_event,
+        }
+        if additional_data:
+            entity["AdditionalData"] = additional_data
+        self.upsert(entity)
+    def release_ip_entity(self, cidr):
+        print("[INF] Releasing IP entity")
+        hex_ip = cidr_to_int(cidr)
+        current_entity = self.get_entity({"PartitionKey": hex_ip, "RowKey": hashlib.md5(hex_ip.encode()).hexdigest()})
+        entity = {
+            "PartitionKey": hex_ip,
+            "RowKey": hashlib.md5(hex_ip.encode()).hexdigest(),
+            "Used": False,
+            "VNetName": "",
+            "SubscriptionID": "",
+            "LatestEvent": "",
+            "AdditionalData": "Released VNetID:" + current_entity.get("VNetID")
         }
         self.upsert(entity)
+
+    def update_additional_data(self, cidr, vnet_id):
+        print("[INF] Updating AdditionalData")
+        hex_ip = cidr_to_int(cidr)
+        entity = self.get_entity({"PartitionKey": hex_ip, "RowKey": hashlib.md5(hex_ip.encode()).hexdigest()})
+        if entity:
+            entity["AdditionalData"]["VNetID"] = vnet_id
+            self.upsert(entity)
     
 class QueueClient:
     def __init__(self, account, credential):
@@ -222,7 +250,12 @@ def main():
     system_table = TableClient(storage_name, "system", cred)
     az_client = AzClient(default_subscription, cred)
 
-    result = ips_table.query("Used eq false and AddressCount eq {size}".format(size = ip_mask[16]))
+    try:
+        for record in ips_table.query("VNetName eq '{vnet}' and AdditionalData eq {date}".format(vnet="vnet2328", date="1755808139")):
+            print(record)
+    except Exception as e:
+        print(e)
+
 
     match os.environ.get("JOB_ROLE").lower():
         case "collector":
@@ -237,23 +270,22 @@ def main():
                         if hub_id == "" or hub_id not in event.get("subject"):
                             hub_id = event.get("subject").split('/virtualNetworkPeerings/')[0]
                             system_table.upsert({"PartitionKey": default_subscription, "RowKey": "","Value":hub_id})
-                        peering_info, fail = az_client.get_resource_by_id(event.get("subject"),"2024-01-01")
-                        if peering_info != "" and not fail:  
-                            vnet_info, fail = az_client.get_resource_by_id(peering_info.properties["remoteVirtualNetwork"]["id"],"2024-01-01")
-                            if vnet_info != "" and not fail:
+                        peering_info, ok = az_client.get_resource_by_id(event.get("subject"),"2024-01-01")
+                        if peering_info != "" and ok:  
+                            vnet_info, ok = az_client.get_resource_by_id(peering_info.properties["remoteVirtualNetwork"]["id"],"2024-01-01")
+                            if vnet_info != "" and ok:
                                 for ip in vnet_info.properties["addressSpace"]["addressPrefixes"]:
                                     subnets = {}
                                     for subnet in vnet_info.properties["subnets"]:
                                         subnets[subnet["name"]] = subnet["properties"]["addressPrefixes"][0]
                                     subscription_id = vnet_info.id.split('/')[2]
-                                    subscription_info, fail = az_client.get_resource_by_id("/subscriptions/" + subscription_id, "2022-12-01")
-                                    if not fail:
+                                    subscription_info, ok = az_client.get_resource_by_id("/subscriptions/" + subscription_id, "2022-12-01")
+                                    if ok:
                                         subscription_name = subscription_info.additional_properties["displayName"]
                                         subscriptions_map[subscription_id] = subscription_name
                                     else:
                                         subscription_name = "Unknown"
                                     ips_table.create_ip_entity(ip, peering_info.properties["peeringState"], vnet_info.name, vnet_info.id, peering_info.properties["peeringSyncLevel"], json.dumps(subnets), subscription_id, event.get("eventType"), vnet_info.location, "")
-                                    #ips_table.upsert({"PartitionKey":  available_ip_num, "RowKey":hashlib.md5(available_ip_num.encode()).hexdigest(), "IP": ip, "AddressCount":ip_mask[int(ip.split('/')[1])], "Used":True,"PeeringState": peering_info.properties["peeringState"], "VNetName": vnet_info.name,"VNetID": vnet_info.id,"PeeringSyncLevel": peering_info.properties["peeringSyncLevel"],"Subnets": json.dumps(subnets),"SubscriptionID": subscription_id, "LatestEvent":event.get("eventType"),"Location":vnet_info.location,"AdditionalData":"","Disabled":False})
             for key in subscriptions_map:
                 system_table.upsert({"PartitionKey": key, "RowKey": "","Value":subscriptions_map[key]})
         case "initiator":
@@ -264,8 +296,8 @@ def main():
                     print("[ERR] Hub ID not found")
                     return
             if spoke_ips == "":
-                hub_info, fail = az_client.get_resource_by_id(hub_id, "2024-01-01")
-                if fail:
+                hub_info, ok = az_client.get_resource_by_id(hub_id, "2024-01-01")
+                if not ok:
                     print("[ERR] Hub not found")
                     return
                 if hub_info.tags["SpokeAddressPrefixes"] == "":
@@ -311,13 +343,65 @@ def main():
                                         new_size_ip = ip
                                     ips_table.upsert({"PartitionKey": cidr_to_int(cidr), "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest(), "ChildKeys": ",".join(child_keys), "Used": True})
                                     ips_table.reserve_ip_entity(new_size_ip, vnet_name, vnet_subscription, latest_evnet)
-                                return
+                                    query_size = 1
                             except StopIteration:
                                 next_result = []
                             query_size -= 1
                     case "Custom.IP.Release":
-                        pass
-            for ip in ips_table.query("ChildrenKeys gt '0'"):
-                print(ip)
+                        ips_table.release_ip_entity(event.get("IP"))
+                    case "Microsoft.Resources.ResourceWriteSuccess":
+                        ip_found = False
+                        deployment_info, ok = az_client.get_resource_by_id(event.get("subject"), "2021-04-01")
+                        username_email = event.get("data").get("claims").get("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")
+                        if ok:
+                            vnet_id = deployment_info.properties["outputs"]["vnetId"]["value"]
+                            vnet_location = deployment_info.properties["parameters"]["location"]["value"]
+                            vnet_size = deployment_info.properties["parameters"]["vnetSize"]["value"]
+                            event_time = deployment_info.properties["outputs"]["deployTime"]["value"]
+                        if vnet_id != "":
+                            subscription_id = vnet_id.split('/')[2]
+                            vnet_rg = vnet_id.split('/')[4]
+                            vnet_name = vnet_id.split('/')[8]
+                        else:
+                            print("[ERR] VNet ID not found")
+                            return
+                        query_size = vnet_size
+                        while query_size > 1 and ip_found == False:
+                            print("[INF] Searching for IP with size: " + str(query_size))
+                            result = ips_table.query("Used eq false and AddressCount eq {size}".format(size=ip_mask[query_size]))
+                            try:
+                                next_result = next(result)
+                                if query_size == vnet_size:
+                                    ip_found = True
+                                    allocated_ip = next_result["IP"]
+                                else:
+                                    # Split the IP range to requested size and update the table. Should mark original IP as disabled, create new IPs with the split range and store their parent key into ChildKeys
+                                    cidr = next_result["IP"]
+                                    network = ipaddress.ip_network(cidr, strict=False)
+                                    child_keys = []
+                                    allocated_ip = ""
+                                    for ip in network.subnets(new_prefix=vnet_size):
+                                        ip = str(ip)
+                                        ips_table.create_ip_entity(ip, "", "", "", "", "", "", "", "", "")
+                                        child_keys.append(cidr_to_int(ip))
+                                        allocated_ip = ip
+                                    ips_table.upsert({"PartitionKey": cidr_to_int(cidr), "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest(), "ChildKeys": ",".join(child_keys), "Used": True})
+                                    ip_found = True
+                            except StopIteration:
+                                next_result = []
+                            query_size -= 1
+                        # Check for duplicates
+                        vnet_ips = 0
+                        try:
+                            for ip in ips_table.query("VNetName eq '{vnet}' and AdditionalData eq {date}".format(vnet=vnet_name, date=event_time)):
+                                vnet_ips += 1
+                        except Exception:
+                            pass
+                        if vnet_ips == 0:
+                            ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, latest_evnet, event_time)
+                        print(username_email)
+
+                
+
 
 main()

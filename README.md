@@ -28,7 +28,11 @@ event-topic-lgddktlx6c0eol
 2. Assign to App Job Queue Reciever role
 3. Configure Event triggering
 
-[Trigger Job by Service Bus]https://techcommunity.microsoft.com/t5/apps-on-azure-blog/deploying-an-event-driven-job-with-azure-container-app-job-and/ba-p/3909279
+[How to send an email using Azure Communication Services](https://github.com/MicrosoftDocs/azure-docs/blob/main/articles/communication-services/quickstarts/email/send-email.md)
+
+[Azure DevOps service hooks integration](https://learn.microsoft.com/en-us/azure/devops/service-hooks/overview?view=azure-devops)
+
+[Trigger Job by Service Bus](https://techcommunity.microsoft.com/t5/apps-on-azure-blog/deploying-an-event-driven-job-with-azure-container-app-job-and/ba-p/3909279)
 
 https://github.com/Azure-Samples/container-apps-jobs
 
