@@ -30,6 +30,8 @@ event-topic-lgddktlx6c0eol
 
 [How to send an email using Azure Communication Services](https://github.com/MicrosoftDocs/azure-docs/blob/main/articles/communication-services/quickstarts/email/send-email.md)
 
+https://github.com/Azure-Samples/communication-services-python-quickstarts/tree/main/use-managed-Identity
+
 [Azure DevOps service hooks integration](https://learn.microsoft.com/en-us/azure/devops/service-hooks/overview?view=azure-devops)
 
 [Trigger Job by Service Bus](https://techcommunity.microsoft.com/t5/apps-on-azure-blog/deploying-an-event-driven-job-with-azure-container-app-job-and/ba-p/3909279)

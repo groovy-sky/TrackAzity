@@ -239,9 +239,9 @@ class QueueClient:
 
 def main():
     storage_name = os.environ.get("STORAGE_NAME")
-    queue_name = os.environ.get("QUEUE_NAME", "")
     default_subscription = os.environ.get("DEFAULT_SUBSCRIPTION", "00000000-0000-0000-0000-000000000000")
     hub_id = os.environ.get("HUB_ID","")
+    devops_webhook = os.environ.get("DEVOPS_WEBHOOK","")
     debug = False
     
     cred = DefaultAzureCredential()
@@ -250,20 +250,14 @@ def main():
     system_table = TableClient(storage_name, "system", cred)
     az_client = AzClient(default_subscription, cred)
 
-    try:
-        for record in ips_table.query("VNetName eq '{vnet}' and AdditionalData eq {date}".format(vnet="vnet2328", date="1755808139")):
-            print(record)
-    except Exception as e:
-        print(e)
+    job_role = os.environ.get("JOB_ROLE").lower()
+    job_queue = {"collector":"virtualnetworkpeerings","allocator":"ipsallocation"}[job_role]
 
-
-    match os.environ.get("JOB_ROLE").lower():
+    match job_role:
         case "collector":
-            if queue_name == "":
-                queue_name = "virtualnetworkpeerings"
             queue = QueueClient(storage_name, cred)
             subscriptions_map = {}
-            for item in queue.receive(queue_name):
+            for item in queue.receive(job_queue):
                 event = json.loads(item)
                 match event.get("eventType"):
                     case "Microsoft.Resources.ResourceWriteSuccess":
@@ -311,10 +305,8 @@ def main():
                 else:
                     print("[INF] Record already exists: " + str(result))
         case "allocator":
-            if queue_name == "":
-                queue_name = "ipsallocation"
             queue = QueueClient(storage_name, cred)
-            for item in queue.receive(queue_name, recieve_only=debug):
+            for item in queue.receive(job_queue, recieve_only=debug):
                 event = json.loads(item)
                 vnet_subscription = event.get("SubscriptionID")
                 vnet_name = event.get("VNetName")
@@ -352,7 +344,7 @@ def main():
                     case "Microsoft.Resources.ResourceWriteSuccess":
                         ip_found = False
                         deployment_info, ok = az_client.get_resource_by_id(event.get("subject"), "2021-04-01")
-                        username_email = event.get("data").get("claims").get("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")
+                        username_email = event.get("data").get("claims").get('http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn')
                         if ok:
                             vnet_id = deployment_info.properties["outputs"]["vnetId"]["value"]
                             vnet_location = deployment_info.properties["parameters"]["location"]["value"]
@@ -399,9 +391,8 @@ def main():
                             pass
                         if vnet_ips == 0:
                             ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, latest_evnet, event_time)
-                        print(username_email)
-
-                
-
+                            message = "az rest --method put --url https://management.azure.com/subscriptions/{subscription}/resourceGroups/{resource_group}/providers/Microsoft.Network/virtualNetworks/{vnet_name}?api-version=2024-01-01 --body {body}".format(subscription=subscription_id, resource_group=vnet_rg, vnet_name=vnet_name, body=json.dumps({"properties": {"addressSpace": {"addressPrefixes": [allocated_ip]}}}))
+                            queue.send("devops", message)
+    
 
 main()
