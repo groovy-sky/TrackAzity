@@ -28,6 +28,10 @@ event-topic-lgddktlx6c0eol
 2. Assign to App Job Queue Reciever role
 3. Configure Event triggering
 
+[DevOps identity](https://blog.xmi.fr/posts/azure-devops-authenticate-as-managed-identity/)
+
+https://learn.microsoft.com/en-us/azure/devops/pipelines/tasks/reference/azure-cli-v2?view=azure-pipelines
+
 [How to send an email using Azure Communication Services](https://github.com/MicrosoftDocs/azure-docs/blob/main/articles/communication-services/quickstarts/email/send-email.md)
 
 https://github.com/Azure-Samples/communication-services-python-quickstarts/tree/main/use-managed-Identity

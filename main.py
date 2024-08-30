@@ -9,6 +9,7 @@ import hashlib
 import socket  
 import struct  
 import ipaddress  
+import requests
 
 ip_mask = {  
     1: 2147483648,  
@@ -241,7 +242,12 @@ def main():
     storage_name = os.environ.get("STORAGE_NAME")
     default_subscription = os.environ.get("DEFAULT_SUBSCRIPTION", "00000000-0000-0000-0000-000000000000")
     hub_id = os.environ.get("HUB_ID","")
+    devops_org = os.environ.get("DEVOPS_ORG","")
     devops_webhook = os.environ.get("DEVOPS_WEBHOOK","")
+    devops_run = False
+
+    if devops_org == "" or devops_webhook == "":
+        devops_url = "https://dev.azure.com/{organization}/_apis/public/distributedtask/webhooks/{webhook}?api-version=6.0-preview".format(organization=devops_org, webhook=devops_webhook)
     debug = False
     
     cred = DefaultAzureCredential()
@@ -393,6 +399,9 @@ def main():
                             ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, latest_evnet, event_time)
                             message = "az rest --method put --url https://management.azure.com/subscriptions/{subscription}/resourceGroups/{resource_group}/providers/Microsoft.Network/virtualNetworks/{vnet_name}?api-version=2024-01-01 --body {body}".format(subscription=subscription_id, resource_group=vnet_rg, vnet_name=vnet_name, body=json.dumps({"properties": {"addressSpace": {"addressPrefixes": [allocated_ip]}}}))
                             queue.send("devops", message)
+                            devops_run = True
+    if devops_run and devops_url != "":
+        requests.post(devops_url, json = "{}")
     
 
 main()
