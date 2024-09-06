@@ -23,6 +23,9 @@ event-grid-z85u0167jc913j
 Event Topic
 event-topic-lgddktlx6c0eol
 
+Managed Identity
+58x1xh8p9v49p2
+
 0. Deploy ARM
 1. Assign to Event Topic Storage Queue Sender role
 2. Assign to App Job Queue Reciever role

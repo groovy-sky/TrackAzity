@@ -246,7 +246,7 @@ def main():
     devops_webhook = os.environ.get("DEVOPS_WEBHOOK","")
     devops_run = False
 
-    if devops_org == "" or devops_webhook == "":
+    if devops_org != "" and devops_webhook != "":
         devops_url = "https://dev.azure.com/{organization}/_apis/public/distributedtask/webhooks/{webhook}?api-version=6.0-preview".format(organization=devops_org, webhook=devops_webhook)
     debug = False
     
@@ -397,11 +397,13 @@ def main():
                             pass
                         if vnet_ips == 0:
                             ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, latest_evnet, event_time)
-                            message = "az rest --method put --url https://management.azure.com/subscriptions/{subscription}/resourceGroups/{resource_group}/providers/Microsoft.Network/virtualNetworks/{vnet_name}?api-version=2024-01-01 --body {body}".format(subscription=subscription_id, resource_group=vnet_rg, vnet_name=vnet_name, body=json.dumps({"properties": {"addressSpace": {"addressPrefixes": [allocated_ip]}}}))
-                            queue.send("devops", message)
+                            message = "az account set -s {subscription};\naz network vnet create -g {rg} -n {vnet} --address-prefix {ip} --subnet-name default --subnet-prefixes {ip}".format(subscription=subscription_id, rg=vnet_rg, vnet=vnet_name,ip = allocated_ip)
+                            encoded_message = base64.b64encode(message.encode()).decode()
+                            queue.send("devops", encoded_message)
                             devops_run = True
     if devops_run and devops_url != "":
-        requests.post(devops_url, json = "{}")
+        print("[INF] Triggering DevOps Webhook")
+        requests.post(devops_url, data="{}", headers={"Content-Type": "application/json"})
     
 
 main()
