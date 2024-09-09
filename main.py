@@ -248,7 +248,6 @@ def main():
 
     if devops_org != "" and devops_webhook != "":
         devops_url = "https://dev.azure.com/{organization}/_apis/public/distributedtask/webhooks/{webhook}?api-version=6.0-preview".format(organization=devops_org, webhook=devops_webhook)
-    debug = False
     
     cred = DefaultAzureCredential()
 
@@ -258,6 +257,16 @@ def main():
 
     job_role = os.environ.get("JOB_ROLE").lower()
     job_queue = {"collector":"virtualnetworkpeerings","allocator":"ipsallocation"}[job_role]
+
+    if hub_id =="":
+        hub_id = system_table.get_entity({"PartitionKey": default_subscription, "RowKey": ""}).get("Value")
+    if hub_id == "":
+        print("[ERR] Hub ID not found")
+        return
+    else:
+        hub_name = hub_id.split('/')[8]
+        hub_rg = hub_id.split('/')[4]
+        hub_sub = hub_id.split('/')[2]
 
     match job_role:
         case "collector":
@@ -290,11 +299,6 @@ def main():
                 system_table.upsert({"PartitionKey": key, "RowKey": "","Value":subscriptions_map[key]})
         case "initiator":
             spoke_ips = os.environ.get("SPOKE_IP_RANGES","")
-            if hub_id =="":
-                hub_id = system_table.get_entity({"PartitionKey": default_subscription, "RowKey": ""}).get("Value")
-                if hub_id == "":
-                    print("[ERR] Hub ID not found")
-                    return
             if spoke_ips == "":
                 hub_info, ok = az_client.get_resource_by_id(hub_id, "2024-01-01")
                 if not ok:
@@ -312,7 +316,7 @@ def main():
                     print("[INF] Record already exists: " + str(result))
         case "allocator":
             queue = QueueClient(storage_name, cred)
-            for item in queue.receive(job_queue, recieve_only=debug):
+            for item in queue.receive(job_queue):
                 event = json.loads(item)
                 vnet_subscription = event.get("SubscriptionID")
                 vnet_name = event.get("VNetName")
@@ -397,7 +401,7 @@ def main():
                             pass
                         if vnet_ips == 0:
                             ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, latest_evnet, event_time)
-                            message = "az account set -s {subscription};\naz network vnet create -g {rg} -n {vnet} --address-prefix {ip} --subnet-name default --subnet-prefixes {ip}".format(subscription=subscription_id, rg=vnet_rg, vnet=vnet_name,ip = allocated_ip)
+                            message = "az account set -s {subscription};\naz network vnet create -g {rg} -n {vnet} --address-prefix {ip} --subnet-name default --subnet-prefixes {ip};\naz network vnet peering create --name {hub_name} --remote-vnet {hub_id} --resource-group {rg} --vnet-name {vnet};\naz account set -s {hub_sub};\naz network vnet peering create --name {vnet} --remote-vnet /subscriptions/{subscription}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet} --resource-group {hub_rg} --vnet-name {hub_name}".format(subscription=subscription_id, rg=vnet_rg, vnet=vnet_name,ip = allocated_ip, hub_name=hub_name, hub_id=hub_id, hub_sub=hub_sub, hub_rg=hub_rg)
                             encoded_message = base64.b64encode(message.encode()).decode()
                             queue.send("devops", encoded_message)
                             devops_run = True
