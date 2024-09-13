@@ -31,7 +31,7 @@ Managed Identity
 2. Assign to App Job Queue Reciever role
 3. Configure Event triggering
 
-https://programmingwithwolfgang.com/create-git-commits-in-azure-devops-yaml-pipeline/
+[Commit to repository from pipeline itself](https://programmingwithwolfgang.com/create-git-commits-in-azure-devops-yaml-pipeline/)
 
 [DevOps identity](https://blog.xmi.fr/posts/azure-devops-authenticate-as-managed-identity/)
 
@@ -75,28 +75,26 @@ https://learn.microsoft.com/en-us/rest/api/containerapps/jobs/start?view=rest-co
 
 
 ```
-from azure.servicebus import ServiceBusClient, ServiceBusMessage  
-import time  
+def parse_input(subject):  
+    # convert the subject to lower case  
+    subject = subject.lower()  
   
-connection_str = 'your_connection_string'  
-queue_name = 'your_queue_name'  
-cidr_size = '/24'  # replace this with your actual CIDR size  
+    # define the patterns for each type of input  
+    pattern1 = r'/subscriptions/([a-z0-9\-]+)/resourcegroups/([a-z0-9]+)/providers/microsoft.resources/deployments/([a-z0-9\-]+)'  
+    pattern2 = r'/subscriptions/([a-z0-9\-]+)/resourcegroups/([a-z0-9]+)/providers/microsoft.network/virtualnetworks/([a-z0-9\-]+)/virtualnetworkpeerings/([a-z0-9\-]+)'  
   
-service_bus_client = ServiceBusClient.from_connection_string(connection_str)  
+    # match the subject with the patterns  
+    match1 = re.match(pattern1, subject)  
+    match2 = re.match(pattern2, subject)  
   
-with service_bus_client:  
-    sender = service_bus_client.get_queue_sender(queue_name)  
-    with sender:  
-        epoch_time = int(time.time())  
-        cidr_int = int(cidr_size[1:])  # get the integer value after the slash  
-        message_id = str(cidr_int ^ epoch_time)  # XOR operation  
-          
-        message = ServiceBusMessage(cidr_size, message_id=message_id)  
-        sender.send_messages(message)  
-        print(f"Sent a single message with ID: {message_id}")  
-
+    # check if the subject matches any of the patterns  
+    if match1:  
+        return {"type": "deployment", "details": match1.groups()}  
+    elif match2:  
+        return {"type": "virtual network peering", "details": match2.groups()}  
+    else:  
+        return {"error": "subject does not match any known pattern"}
 ```
-
 
 ```
 export RESOURCE_GROUP="hub-vnet"
@@ -143,44 +141,3 @@ az containerapp job create \
 
 ```
 
-
-```
-    parser = argparse.ArgumentParser(description="Reserve an IP range")  
-    parser.add_argument("size", type=int, help="Size of the required IP range (between 1 and 32)")  
-  
-    args = parser.parse_args()  
-  
-    if args.size < 1 or args.size > 32:  
-        print("Invalid range size. Must be between 1 and 32.")  
-        return  
-  
-    manager = IpManager('ip_ranges.csv')  
-    reserved_range = manager.reserve_range(args.size)  
-    if reserved_range is None:  
-        print("No available IP range could be found.")  
-    else:  
-        print(reserved_range['ip_range'])  
-```
-
-```
-credential = DefaultAzureCredential()
-spoke_sub_id = os.environ["AZURE_SUBSCRIPTION_ID"]
-hub_res_id = os.environ["HUB_VNET_ID"]
-
-spoke = AzClient(spoke_sub_id, credential)
-# print(spoke.get_resource("exampleGroup", "Microsoft.Network", "virtualNetworks", "exampleVnet", "2020-06-01"))
-print(len(spoke.get_resource_by_id(hub_res_id+'aaa')))
-# print(spoke.check_resource_existence("exampleGroup", "exampleVnet"))
-```
-
-```
-from azure.identity import DefaultAzureCredential
-from azure.storage.blob import BlobServiceClient
-
-# Acquire a credential object
-token_credential = DefaultAzureCredential()
-
-blob_service_client = BlobServiceClient(
-        account_url="https://<my_account_name>.blob.core.windows.net",
-        credential=token_credential)
-```

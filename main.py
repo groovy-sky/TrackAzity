@@ -2,6 +2,7 @@ from azure.identity import DefaultAzureCredential
 from azure.storage.queue import QueueServiceClient,BinaryBase64DecodePolicy
 from azure.data.tables import TableServiceClient,UpdateMode
 from azure.mgmt.resource import ResourceManagementClient
+from datetime import datetime, timezone  
 import os
 import base64
 import json
@@ -176,10 +177,11 @@ class TableClient:
         except Exception as e:
             return "",False
         return result,True
-    def reserve_ip_entity(self, cidr, vnet_id, location, latest_event, additional_data = ""):
-        print("[INF] Reserving IP entity")
+    def reserve_ip_entity(self, ip_size, vnet_id, location, latest_event, additional_data = ""):
+        print("[INF] Reserving IP entity for " + vnet_id)
         vnet_subscription = vnet_id.split('/')[2]
         vnet_name = vnet_id.split('/')[8]
+        cidr = self.allocate_ip(ip_size)
         hex_ip = cidr_to_int(cidr)
         entity = {
             "PartitionKey": hex_ip,
@@ -194,6 +196,37 @@ class TableClient:
         if additional_data:
             entity["AdditionalData"] = additional_data
         self.upsert(entity)
+    def allocate_ip(self, requested_size):
+        print("[INF] Allocating IP entity")  
+        query_size = requested_size  
+        allocated_ip = None  
+        while query_size > 1 and not allocated_ip:  
+            print("[INF] Searching for IP with size: " + str(query_size))  
+            result = self.query("Used eq false and AddressCount eq {size}".format(size=ip_mask[query_size]))  
+            try:  
+                next_result = next(result)  
+                if query_size == requested_size:  
+                    allocated_ip = next_result["IP"]  
+                else:  
+                    # Split the IP range to requested size and update the table.   
+                    # Should mark original IP as disabled, create new IPs with the split range   
+                    # and store their parent key into ChildKeys  
+                    cidr = next_result["IP"]  
+                    network = ipaddress.ip_network(cidr, strict=False)  
+                    child_keys = []  
+                    for ip in network.subnets(new_prefix=requested_size):  
+                        ip = str(ip)  
+                        self.create_ip_entity(ip, "", "", "", "", "", "", "", "", "")  
+                        child_keys.append(cidr_to_int(ip))  
+                        allocated_ip = ip  
+                    self.upsert({"PartitionKey": cidr_to_int(cidr),   
+                                 "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest(),   
+                                 "ChildKeys": ",".join(child_keys),   
+                                 "Used": True})  
+            except StopIteration:  
+                next_result = []  
+            query_size -= 1  
+        return allocated_ip  
     def release_ip_entity(self, cidr):
         print("[INF] Releasing IP entity")
         hex_ip = cidr_to_int(cidr)
@@ -223,20 +256,47 @@ class QueueClient:
         url = "https://" + account + ".queue.core.windows.net"
         self.client = QueueServiceClient(account_url=url, credential=credential,  message_decode_policy=BinaryBase64DecodePolicy())
 
-    def receive(self, queue_name, recieve_only = False):
+    def receive(self, queue_name, read_only=False, event=False):
         print("[INF] Receiving messages from queue")
         response = []
         queue = self.client.get_queue_client(queue_name)
         for message in queue.receive_messages():
-            response.append(base64.b64decode(message.content))
-            if recieve_only:
+            decoded_message = base64.b64decode(message.content)
+            if event:
+                decoded_message = self.parse_event(decoded_message)
+            response.append(decoded_message)
+            if not read_only:
                 queue.delete_message(message)
         return response
+
+    def parse_event(self, json_string):  
+        print("[INF] Parsing Event")  
+        json_data = json.loads(json_string)  
+        date_string = json_data['eventTime']
+        date_string = date_string[:26] + "Z"  # Truncate to microseconds  
+
+        dt = datetime.strptime(date_string, "%Y-%m-%dT%H:%M:%S.%fZ")  
+        dt = dt.replace(tzinfo=timezone.utc)  # Replace naive datetime object with a timezone-aware one  
+        epoch_time = int(dt.timestamp())  
+
+        result = {  
+            'subject': json_data['subject'].lower(),  
+            'eventType': json_data['eventType'].lower(),  
+            'operationName': json_data['data']['operationName'].lower(),  
+            'eventTime': epoch_time
+        }  
+  
+        return result 
 
     def send(self, queue_name, message):
         print("[INF] Sending message to queue")
         queue_client = self.client.get_queue_client(queue_name)
         queue_client.send_message(message)
+
+    def store_error(self, error, queue_name="errors"):
+        print("[INF] Storing error message")
+        queue_client = self.client.get_queue_client(queue_name)
+        queue_client.send_message(error)
 
 def main():
     storage_name = os.environ.get("STORAGE_NAME")
@@ -256,7 +316,7 @@ def main():
     az_client = AzClient(default_subscription, cred)
 
     job_role = os.environ.get("JOB_ROLE").lower()
-    job_queue = {"collector":"virtualnetworkpeerings","allocator":"ipsallocation"}[job_role]
+    job_queue = {"collector":"virtualnetworkpeerings","allocator":"ipsallocation","azure":"azure"}[job_role]
 
     if hub_id =="":
         hub_id = system_table.get_entity({"PartitionKey": default_subscription, "RowKey": ""}).get("Value")
@@ -269,6 +329,46 @@ def main():
         hub_sub = hub_id.split('/')[2]
 
     match job_role:
+        case "azure":
+            queue = QueueClient(storage_name, cred)
+            for item in queue.receive(job_queue, read_only = True, event = True):
+                # Process the event based on the operation name
+                match item["operationName"]:
+                    # Process new VNet allocation request
+                    case "microsoft.resources/deployments/write":
+                        deployment_info, ok = az_client.get_resource_by_id(item["subject"], "2021-04-01")
+                        if ok:
+                            vnet_id = deployment_info.properties["outputs"]["vnetId"]["value"]
+                            vnet_location = deployment_info.properties["parameters"]["location"]["value"]
+                            vnet_size = deployment_info.properties["parameters"]["vnetSize"]["value"]
+                            event_time = deployment_info.properties["outputs"]["deployTime"]["value"]
+                        if vnet_id != "":
+                            subscription_id = vnet_id.split('/')[2]
+                            vnet_rg = vnet_id.split('/')[4]
+                            vnet_name = vnet_id.split('/')[8]
+                        else:
+                            print("[ERR] VNet ID not found")
+                            queue.store_error(item)
+                            return
+                        # Check for duplicates
+                        vnet_ips = 0
+                        try:
+                            for ip in ips_table.query("VNetName eq '{vnet}' and AdditionalData eq {date}".format(vnet=vnet_name, date=event_time)):
+                                vnet_ips += 1
+                        except Exception:
+                            pass
+                        # Allocate IP if no duplicate found
+                        if vnet_ips == 0:
+                            allocated_ip = ips_table.allocate_ip(vnet_size)
+                            reserved_ip = ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, item["eventType"], event_time)
+                            message = "az account set -s {subscription};\naz network vnet create -g {rg} -n {vnet} --address-prefix {ip} --subnet-name default --subnet-prefixes {ip};\naz network vnet peering create --name {hub_name} --remote-vnet {hub_id} --resource-group {rg} --vnet-name {vnet};\naz account set -s {hub_sub};\naz network vnet peering create --name {vnet} --remote-vnet /subscriptions/{subscription}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet} --resource-group {hub_rg} --vnet-name {hub_name}".format(subscription=subscription_id, rg=vnet_rg, vnet=vnet_name,ip = reserved_ip, hub_name=hub_name, hub_id=hub_id, hub_sub=hub_sub, hub_rg=hub_rg)
+                            requests.post(devops_url, data="{}", headers={"Content-Type": "application/json"})
+                    # Process VNet peering request
+                    case "microsoft.network/virtualnetworks/virtualnetworkpeerings/write":
+                        peering_info, ok = az_client.get_resource_by_id(item["subject"],"2024-01-01")
+                        if peering_info != "" and ok:  
+                            remote_vnet_id = peering_info.properties["remoteVirtualNetwork"]["id"]
+                            message = "az rest --method get --url https://management.azure.com"+ remote_vnet_id +"api-version=2024-01-01"
         case "collector":
             queue = QueueClient(storage_name, cred)
             subscriptions_map = {}
