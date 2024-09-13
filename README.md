@@ -75,6 +75,39 @@ https://learn.microsoft.com/en-us/rest/api/containerapps/jobs/start?view=rest-co
 
 
 ```
+<!DOCTYPE html>  
+<html>  
+<body>  
+    <h2>Spoke VNet Table</h2>  
+    <table id="vnetTable">  
+        <tr>  
+            <th>VNet ID</th>  
+            <th>Address Space</th>  
+            <th>Location</th>  
+            <th>Subnets</th>  
+        </tr>  
+    </table>  
+  
+    <script>  
+        fetch('Spoke_VNet_table.json')  
+            .then(response => response.json())  
+            .then(data => {  
+                const table = document.getElementById('vnetTable');  
+                data.forEach(item => {  
+                    const row = table.insertRow(-1);  
+                    Object.values(item).forEach(text => {  
+                        const cell = row.insertCell(-1);  
+                        cell.textContent = text;  
+                    });  
+                });  
+            })  
+            .catch(error => console.error('Error:', error));  
+    </script>  
+</body>  
+</html>  
+```
+
+```
 def parse_input(subject):  
     # convert the subject to lower case  
     subject = subject.lower()  

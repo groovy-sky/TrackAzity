@@ -362,13 +362,20 @@ def main():
                             allocated_ip = ips_table.allocate_ip(vnet_size)
                             reserved_ip = ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, item["eventType"], event_time)
                             message = "az account set -s {subscription};\naz network vnet create -g {rg} -n {vnet} --address-prefix {ip} --subnet-name default --subnet-prefixes {ip};\naz network vnet peering create --name {hub_name} --remote-vnet {hub_id} --resource-group {rg} --vnet-name {vnet};\naz account set -s {hub_sub};\naz network vnet peering create --name {vnet} --remote-vnet /subscriptions/{subscription}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet} --resource-group {hub_rg} --vnet-name {hub_name}".format(subscription=subscription_id, rg=vnet_rg, vnet=vnet_name,ip = reserved_ip, hub_name=hub_name, hub_id=hub_id, hub_sub=hub_sub, hub_rg=hub_rg)
-                            requests.post(devops_url, data="{}", headers={"Content-Type": "application/json"})
                     # Process VNet peering request
                     case "microsoft.network/virtualnetworks/virtualnetworkpeerings/write":
                         peering_info, ok = az_client.get_resource_by_id(item["subject"],"2024-01-01")
                         if peering_info != "" and ok:  
                             remote_vnet_id = peering_info.properties["remoteVirtualNetwork"]["id"]
-                            message = "az rest --method get --url https://management.azure.com"+ remote_vnet_id +"api-version=2024-01-01"
+                            print ("[INF] Remote VNet ID: " + remote_vnet_id)
+                            message = "az rest --method get --url https://management.azure.com"+ remote_vnet_id +"?api-version=2024-01-01"
+                        else:
+                            print("[ERR] Peering info not found")
+                            queue.store_error(item)
+                            return
+                encoded_message = base64.b64encode(message.encode()).decode()
+                queue.send("devops", encoded_message)
+            requests.post(devops_url, data="{}", headers={"Content-Type": "application/json"})     
         case "collector":
             queue = QueueClient(storage_name, cred)
             subscriptions_map = {}
