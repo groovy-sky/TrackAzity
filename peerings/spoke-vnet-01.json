@@ -1,0 +1,74 @@
+{
+    "name": "spoke-vnet-01",
+    "id": "/subscriptions/20f105d9-0e32-43bb-bd88-3f616a393940/resourceGroups/spoke-vnet-01/providers/Microsoft.Network/virtualNetworks/spoke-vnet-01",
+    "etag": "W/\"82ea6ef9-aebe-4f47-abd1-5c57862ccd06\"",
+    "type": "Microsoft.Network/virtualNetworks",
+    "location": "westeurope",
+    "properties": {
+      "provisioningState": "Succeeded",
+      "resourceGuid": "c3ccbfc4-b374-4a5f-8aa5-9fd306fe3f6c",
+      "addressSpace": {
+        "addressPrefixes": [
+          "10.0.9.32/27"
+        ],
+        "ipamPoolPrefixAllocations": []
+      },
+      "subnets": [
+        {
+          "name": "default",
+          "id": "/subscriptions/20f105d9-0e32-43bb-bd88-3f616a393940/resourceGroups/spoke-vnet-01/providers/Microsoft.Network/virtualNetworks/spoke-vnet-01/subnets/default",
+          "etag": "W/\"82ea6ef9-aebe-4f47-abd1-5c57862ccd06\"",
+          "properties": {
+            "provisioningState": "Succeeded",
+            "addressPrefix": "10.0.9.32/27",
+            "ipamPoolPrefixAllocations": [],
+            "delegations": [],
+            "privateEndpointNetworkPolicies": "Disabled",
+            "privateLinkServiceNetworkPolicies": "Enabled"
+          },
+          "type": "Microsoft.Network/virtualNetworks/subnets"
+        }
+      ],
+      "virtualNetworkPeerings": [
+        {
+          "name": "vnet-lwxlt98lt28id9",
+          "id": "/subscriptions/20f105d9-0e32-43bb-bd88-3f616a393940/resourceGroups/spoke-vnet-01/providers/Microsoft.Network/virtualNetworks/spoke-vnet-01/virtualNetworkPeerings/vnet-lwxlt98lt28id9",
+          "etag": "W/\"82ea6ef9-aebe-4f47-abd1-5c57862ccd06\"",
+          "properties": {
+            "provisioningState": "Succeeded",
+            "resourceGuid": "426b5b0b-f559-06bf-05d1-569ab7518776",
+            "peeringState": "Connected",
+            "peeringSyncLevel": "FullyInSync",
+            "remoteVirtualNetwork": {
+              "id": "/subscriptions/20f105d9-0e32-43bb-bd88-3f616a393940/resourceGroups/DvL08g2ULxDxn6/providers/Microsoft.Network/virtualNetworks/vnet-lwxlt98lt28id9"
+            },
+            "allowVirtualNetworkAccess": false,
+            "allowForwardedTraffic": false,
+            "allowGatewayTransit": false,
+            "useRemoteGateways": false,
+            "doNotVerifyRemoteGateways": false,
+            "peerCompleteVnets": true,
+            "remoteAddressSpace": {
+              "addressPrefixes": [
+                "10.192.160.0/26"
+              ],
+              "ipamPoolPrefixAllocations": []
+            },
+            "remoteVirtualNetworkAddressSpace": {
+              "addressPrefixes": [
+                "10.192.160.0/26"
+              ],
+              "ipamPoolPrefixAllocations": []
+            },
+            "remoteVirtualNetworkEncryption": {
+              "enabled": false,
+              "enforcement": "AllowUnencrypted"
+            },
+            "routeServiceVips": {}
+          },
+          "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings"
+        }
+      ],
+      "enableDdosProtection": false
+    }
+  }
