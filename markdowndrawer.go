@@ -108,11 +108,22 @@ func parseJSON(data []byte, result *JSONResult) {
 	result.Rows = append(result.Rows, row)
 }
 
-func printResults(result *JSONResult) {
-	fmt.Println("| VNet | Location | IP | Peerings | Subnets |")
-	fmt.Println("| -------- | ------- | ------- | ------- | ------- |")
+func printResults(result *JSONResult, outputFileName string) {
+	output := "| VNet | Location | IP | Peerings | Subnets |\n"
+	output += "| -------- | ------- | ------- | ------- | ------- |\n"
 	for _, row := range result.Rows {
-		fmt.Printf("| %s | %s | %s | %s | %s |\n", row.VnetLink, row.Location, row.IP, row.Peerings, row.Subnets)
+		output += fmt.Sprintf("| %s | %s | %s | %s | %s |\n", row.VnetLink, row.Location, row.IP, row.Peerings, row.Subnets)
+	}
+
+	if outputFileName != "" {
+		err := os.WriteFile(outputFileName, []byte(output), 0644)
+		if err != nil {
+			fmt.Println("Error writing to file:", err)
+			return
+		}
+		fmt.Println("Results written to", outputFileName)
+	} else {
+		fmt.Print(output)
 	}
 }
 
@@ -153,7 +164,7 @@ func generateMarkdownTable(dir string) {
 	}
 
 	// Now you can print all parsed JSON data
-	printResults(result)
+	printResults(result, "REPORT.md")
 }
 func main() {
 	userAccount = os.Getenv("AZURE_TENANT_ID")
