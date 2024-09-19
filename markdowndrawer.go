@@ -127,7 +127,8 @@ func printResults(result *JSONResult, outputFileName string) {
 	}
 }
 
-func generateMarkdownTable(dir string) {
+func generateMarkdownTable(dir, resultPath string) {
+	// Stores the parsed JSON data as a Markdown table
 	result := &JSONResult{}
 
 	files := []os.FileInfo{}
@@ -164,7 +165,7 @@ func generateMarkdownTable(dir string) {
 	}
 
 	// Now you can print all parsed JSON data
-	printResults(result, "REPORT.md")
+	printResults(result, resultPath)
 }
 func main() {
 	userAccount = os.Getenv("AZURE_TENANT_ID")
@@ -172,7 +173,16 @@ func main() {
 		fmt.Println("[ERR] AZURE_TENANT_ID not set")
 		return
 	}
-	dir := "peerings/" // replace with your directory path
 
-	generateMarkdownTable(dir)
+	dir := os.Getenv("PEERINGS_DIR")
+	if dir == "" {
+		dir = "peerings"
+	}
+
+	tablePath := os.Getenv("TABLE_PATH")
+	if tablePath == "" {
+		tablePath = "Documentation/VNet-peerings-report.md"
+	}
+
+	generateMarkdownTable(dir+"/", tablePath)
 }

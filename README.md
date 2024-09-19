@@ -1,5 +1,10 @@
 # az-arm-py
 
+## To-Do
+1. Report functionality
+
+## Intro
+
 1. Init IP table (from file or Hub VNet)
 2. Allocate IP range
 
@@ -73,6 +78,10 @@ https://github.com/Azure/azure-sdk-for-go/blob/sdk/resourcemanager/appcontainers
 
 https://learn.microsoft.com/en-us/rest/api/containerapps/jobs/start?view=rest-containerapps-2024-03-01&tabs=HTTP
 
+
+```
+tenantId=$(az account tenant list --query "[].tenantId" -o tsv); echo $tenantId
+```
 
 ```
 <!DOCTYPE html>  
