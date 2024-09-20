@@ -1,4 +1,4 @@
-# az-arm-py
+# TrackAzity
 
 ![](TrackAzity.svg)
 
