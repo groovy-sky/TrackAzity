@@ -1,5 +1,7 @@
 # az-arm-py
 
+![](TrackAzity.svg)
+
 ## To-Do
 1. Report functionality
 
