@@ -38,6 +38,8 @@ Managed Identity
 2. Assign to App Job Queue Reciever role
 3. Configure Event triggering
 
+[Azure DevOps code wiki as a code](https://learn.microsoft.com/en-us/azure/devops/project/wiki/provisioned-vs-published-wiki?view=azure-devops)
+
 [Commit to repository from pipeline itself](https://programmingwithwolfgang.com/create-git-commits-in-azure-devops-yaml-pipeline/)
 
 [DevOps identity](https://blog.xmi.fr/posts/azure-devops-authenticate-as-managed-identity/)
