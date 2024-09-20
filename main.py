@@ -404,7 +404,7 @@ def main():
                 devops_run = True
                 for peer in peerings_list.additional_properties["value"]:
                     remote_vnet_id = peer["properties"]["remoteVirtualNetwork"]["id"]
-                    message = "az rest --method get --url https://graph.microsoft.com/v1.0/domains --query 'value[?isDefault].id' -o tsv;az rest --method get --url https://management.azure.com"+ remote_vnet_id +"?api-version=2024-01-01 >> ../peerings/" + remote_vnet_id.split("/")[-1] + ".json"
+                    message = "az rest --method get --url https://management.azure.com"+ remote_vnet_id +"?api-version=2024-01-01 > ../peerings/" + remote_vnet_id.split("/")[-1] + ".json"
                     devops_counter += 1
                     queue.send("devops", message)
     if devops_run and devops_url != "":
