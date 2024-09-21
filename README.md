@@ -2,13 +2,34 @@
 
 ![](TrackAzity.svg)
 
-## To-Do
-1. Report functionality
+## Introduction
 
-## Intro
+TrackAzity is a simple and easy-to-use tool for managing IPv4 address assignments and tracking. It is specifically designed for use with Azure Virtual Networks (VNets). With TrackAzity, you can allocate IP ranges for new or existing Azure VNets and generate IP usage reports for your Hub VNet. All IP allocation changes are stored in an Azure Storage Table, and the IP usage report is presented as a Markdown table in an Azure DevOps repository.
+
+TrackAzity simplifies the process of managing IP address assignments within your Azure network infrastructure. By using this tool, you can easily allocate IP ranges, track IP usage, and generate reports to ensure efficient utilization of IP resources.
+
+### Key Components
+
+Azure Resource Group:
+* Azure Storage Account: Used for messaging (using Queue) and IP reservation state (using Table).
+* Azure Container App: The core solution responsible for IP allocation.
+* Event Grid System Topic: Detects IP-related events and forwards them to the Container App.
+* Template Spec: Provides user input for required VNet changes.
+
+Azure DevOps Repository:
+* Main Pipeline: Handles VNet change runs.
+* Report Pipeline: Deploys the Spoke VNet usage report.
+
+
+
+
 
 1. Init IP table (from file or Hub VNet)
 2. Allocate IP range
+
+## To-Do
+1. Report functionality
+2. Backup storage allocation to repository
 
 A tag value can have a maximum of 256 characters.
 
@@ -87,60 +108,6 @@ https://learn.microsoft.com/en-us/rest/api/containerapps/jobs/start?view=rest-co
 tenantId=$(az account tenant list --query "[].tenantId" -o tsv); echo $tenantId
 ```
 
-```
-<!DOCTYPE html>  
-<html>  
-<body>  
-    <h2>Spoke VNet Table</h2>  
-    <table id="vnetTable">  
-        <tr>  
-            <th>VNet ID</th>  
-            <th>Address Space</th>  
-            <th>Location</th>  
-            <th>Subnets</th>  
-        </tr>  
-    </table>  
-  
-    <script>  
-        fetch('Spoke_VNet_table.json')  
-            .then(response => response.json())  
-            .then(data => {  
-                const table = document.getElementById('vnetTable');  
-                data.forEach(item => {  
-                    const row = table.insertRow(-1);  
-                    Object.values(item).forEach(text => {  
-                        const cell = row.insertCell(-1);  
-                        cell.textContent = text;  
-                    });  
-                });  
-            })  
-            .catch(error => console.error('Error:', error));  
-    </script>  
-</body>  
-</html>  
-```
-
-```
-def parse_input(subject):  
-    # convert the subject to lower case  
-    subject = subject.lower()  
-  
-    # define the patterns for each type of input  
-    pattern1 = r'/subscriptions/([a-z0-9\-]+)/resourcegroups/([a-z0-9]+)/providers/microsoft.resources/deployments/([a-z0-9\-]+)'  
-    pattern2 = r'/subscriptions/([a-z0-9\-]+)/resourcegroups/([a-z0-9]+)/providers/microsoft.network/virtualnetworks/([a-z0-9\-]+)/virtualnetworkpeerings/([a-z0-9\-]+)'  
-  
-    # match the subject with the patterns  
-    match1 = re.match(pattern1, subject)  
-    match2 = re.match(pattern2, subject)  
-  
-    # check if the subject matches any of the patterns  
-    if match1:  
-        return {"type": "deployment", "details": match1.groups()}  
-    elif match2:  
-        return {"type": "virtual network peering", "details": match2.groups()}  
-    else:  
-        return {"error": "subject does not match any known pattern"}
-```
 
 ```
 export RESOURCE_GROUP="hub-vnet"
