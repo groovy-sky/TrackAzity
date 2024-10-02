@@ -21,15 +21,16 @@ Azure DevOps Repository:
 * Report Pipeline: Deploys the Spoke VNet usage report.
 
 
-
-
-
 1. Init IP table (from file or Hub VNet)
 2. Allocate IP range
 
 ## To-Do
-1. Report functionality
-2. Backup storage allocation to repository
+- [x] Report functionality
+- [ ] Backup storage allocation to repository
+- [ ] E-mail integrity ?
+- [ ] Expand VNet template
+- [ ] Delete Spoke IP allocation functionality
+
 
 A tag value can have a maximum of 256 characters.
 

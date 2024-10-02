@@ -11,6 +11,7 @@ import socket
 import struct  
 import ipaddress  
 import requests
+import socket  
 
 ip_mask = {  
     1: 2147483648,  
@@ -46,6 +47,26 @@ ip_mask = {
     31: 2,  
     32: 1  
 }  
+
+def check_tcp_connection(ip_address, port):  
+    try:  
+        # Create a TCP socket  
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  
+          
+        # Set a timeout value for the socket connection  
+        sock.settimeout(2)  
+          
+        # Attempt to connect to the specified IP address and port  
+        result = sock.connect_ex((ip_address, port))  
+          
+        # Close the socket connection  
+        sock.close()  
+          
+        # Return True if the connection is successful (result is 0), False otherwise  
+        return result == 0  
+          
+    except socket.error:  
+        return False  
 
 def cidr_to_int(cidr):  
     ip, prefix = cidr.split('/')  
@@ -323,79 +344,49 @@ def main():
         hub_rg = hub_id.split('/')[4]
         hub_sub = hub_id.split('/')[2]
 
-    job_role = os.environ.get("JOB_ROLE").lower()
-    job_queue = {"system":"system","azure":"azure"}[job_role]
     queue = QueueClient(storage_name, cred)
 
     # Counter for number of message send to DevOps (maximum 32 messages allowed)
     devops_counter = 0
-
-    if os.environ.get("SPOKE_IP_RANGES") != "":
-            spoke_ips = os.environ.get("SPOKE_IP_RANGES","")
-            if spoke_ips == "":
-                hub_info, ok = az_client.get_resource_by_id(hub_id, "2024-01-01")
-                if not ok:
-                    print("[ERR] Hub not found")
-                    return
-                if hub_info.tags["SpokeAddressPrefixes"] == "":
-                    print("[ERR] Spoke IP ranges not found")
-                    return
-                spoke_ips = hub_info.tags["SpokeAddressPrefixes"]
-            for ip in spoke_ips.split(','):
-                _, exists = ips_table.get_ip_entity(ip)
-                if not exists:
-                    ips_table.create_ip_entity(ip, "", "", "", "", "", "", "", "","")
-            # Get all peerings from the hub
-            peerings_list, ok = az_client.get_resource_by_id(hub_id+"/virtualNetworkPeerings","2024-01-01")
-            if ok:
-                devops_run = True
-                for peer in peerings_list.additional_properties["value"]:
-                    remote_vnet_id = peer["properties"]["remoteVirtualNetwork"]["id"]
-                    message = "az rest --method get --url https://management.azure.com"+ remote_vnet_id +"?api-version=2024-01-01 > ../peerings/" + remote_vnet_id.split("/")[-1] + ".json"
-                    devops_counter += 1
-                    queue.send("devops", message)
-
-    for item in queue.receive(job_queue, read_only = True, event = True):
+    for item in queue.receive("azure", read_only = True, event = True):
         # Process the event based on the operation name
-        match item["operationName"]:
-            # Process new VNet allocation request
-            case "microsoft.resources/deployments/write":
-                deployment_info, ok = az_client.get_resource_by_id(item["subject"], "2021-04-01")
-                if ok:
-                    vnet_id = deployment_info.properties["outputs"]["vnetId"]["value"]
-                    vnet_location = deployment_info.properties["parameters"]["location"]["value"]
-                    vnet_size = deployment_info.properties["parameters"]["vnetSize"]["value"]
-                    event_time = deployment_info.properties["outputs"]["deployTime"]["value"]
-                if vnet_id != "":
-                    subscription_id = vnet_id.split('/')[2]
-                    vnet_rg = vnet_id.split('/')[4]
-                    vnet_name = vnet_id.split('/')[8]
-                else:
-                    print("[ERR] VNet ID not found")
-                    queue.store_error(item)
-                    return
-                # Check for duplicates
-                vnet_ips = 0
-                try:
-                    for ip in ips_table.query("VNetName eq '{vnet}' and AdditionalData eq {date}".format(vnet=vnet_name, date=event_time)):
-                        vnet_ips += 1
-                except Exception:
-                    pass
-                # Allocate IP if no duplicate found
-                if vnet_ips == 0:
-                    allocated_ip = ips_table.allocate_ip(vnet_size)
-                    reserved_ip = ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, item["eventType"], event_time)
-                    message = "az account set -s {subscription};\naz network vnet create -g {rg} -n {vnet} --address-prefix {ip} --subnet-name default --subnet-prefixes {ip};\naz network vnet peering create --name {hub_name} --remote-vnet {hub_id} --resource-group {rg} --vnet-name {vnet};\naz account set -s {hub_sub};\naz network vnet peering create --name {vnet} --remote-vnet /subscriptions/{subscription}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet} --resource-group {hub_rg} --vnet-name {hub_name}".format(subscription=subscription_id, rg=vnet_rg, vnet=vnet_name,ip = reserved_ip, hub_name=hub_name, hub_id=hub_id, hub_sub=hub_sub, hub_rg=hub_rg)
-            # Process VNet peering request
-            case "microsoft.network/virtualnetworks/virtualnetworkpeerings/write":
-                peering_info, ok = az_client.get_resource_by_id(item["subject"],"2024-01-01")
-                if peering_info != "" and ok:  
-                    remote_vnet_id = peering_info.properties["remoteVirtualNetwork"]["id"]
-                    message = "az rest --method get --url https://management.azure.com"+ remote_vnet_id +"?api-version=2024-01-01 > ../peerings/" + peering_info["name"] + ".json"
-                else:
-                    print("[ERR] Peering info not found")
-                    queue.store_error(item)
-                    return
+        if item["operationName"] == "microsoft.resources/deployments/write":
+            deployment_info, ok = az_client.get_resource_by_id(item["subject"], "2021-04-01")
+            if ok and "deployName" in deployment_info.properties["outputs"]:  
+                if deployment_info.properties["outputs"]["deployName"]["value"] != "":  
+                    match deployment_info.properties["outputs"]["deployName"]["value"]:
+                        case "AddIP":
+                            ip = deployment_info.properties["outputs"]["newIP"]["value"]
+                            _, exists = ips_table.get_ip_entity(ip)
+                            if not exists:
+                                ips_table.create_ip_entity(ip, "", "", "", "", "", "", "", "","")
+                        case "NewVNet":
+                            vnet_id = deployment_info.properties["outputs"]["vnetId"]["value"]
+                            vnet_location = deployment_info.properties["parameters"]["location"]["value"]
+                            vnet_size = deployment_info.properties["parameters"]["vnetSize"]["value"]
+                            event_time = deployment_info.properties["outputs"]["deployTime"]["value"]
+                            # Check for duplicates
+                            vnet_ips = 0
+                            try:
+                                for ip in ips_table.query("VNetName eq '{vnet}' and AdditionalData eq {date}".format(vnet=vnet_name, date=event_time)):
+                                    vnet_ips += 1
+                            except Exception:
+                                pass
+                            # Allocate IP if no duplicate found
+                            if vnet_ips == 0:
+                                allocated_ip = ips_table.allocate_ip(vnet_size)
+                                reserved_ip = ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, item["eventType"], event_time)
+                                message = "az account set -s {subscription};\naz network vnet create -g {rg} -n {vnet} --address-prefix {ip} --subnet-name default --subnet-prefixes {ip};\naz network vnet peering create --name {hub_name} --remote-vnet {hub_id} --resource-group {rg} --vnet-name {vnet};\naz account set -s {hub_sub};\naz network vnet peering create --name {vnet} --remote-vnet /subscriptions/{subscription}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet} --resource-group {hub_rg} --vnet-name {hub_name}".format(subscription=subscription_id, rg=vnet_rg, vnet=vnet_name,ip = reserved_ip, hub_name=hub_name, hub_id=hub_id, hub_sub=hub_sub, hub_rg=hub_rg)
+        # Process VNet peering request
+        if item["operationName"] == "microsoft.network/virtualnetworks/virtualnetworkpeerings/write":
+            peering_info, ok = az_client.get_resource_by_id(item["subject"],"2024-01-01")
+            if peering_info != "" and ok:  
+                remote_vnet_id = peering_info.properties["remoteVirtualNetwork"]["id"]
+                message = "az rest --method get --url https://management.azure.com"+ remote_vnet_id +"?api-version=2024-01-01 > ../peerings/" + peering_info.name + ".json"
+            else:
+                print("[ERR] Peering info not found")
+                queue.store_error(item)
+                return
         devops_counter += 1
         queue.send("devops", message)
     requests.post(devops_url, data="{}", headers={"Content-Type": "application/json"})
@@ -404,5 +395,4 @@ def main():
         for _ in range(round(devops_counter/30)+1):
             requests.post(devops_url, data="{}", headers={"Content-Type": "application/json"})
     
-
 main()
