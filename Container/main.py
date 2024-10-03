@@ -350,21 +350,27 @@ def main():
     devops_counter = 0
     for item in queue.receive("azure", read_only = True, event = True):
         # Process the event based on the operation name
+        message = ""
         if item["operationName"] == "microsoft.resources/deployments/write":
             deployment_info, ok = az_client.get_resource_by_id(item["subject"], "2021-04-01")
             if ok and "deployName" in deployment_info.properties["outputs"]:  
                 if deployment_info.properties["outputs"]["deployName"]["value"] != "":  
-                    match deployment_info.properties["outputs"]["deployName"]["value"]:
-                        case "AddIP":
+                    match deployment_info.properties["outputs"]["deployName"]["value"].lower():
+                        case "addip":
+                            print("[INF] Proceeding New IP allocation")
                             ip = deployment_info.properties["outputs"]["newIP"]["value"]
                             _, exists = ips_table.get_ip_entity(ip)
                             if not exists:
                                 ips_table.create_ip_entity(ip, "", "", "", "", "", "", "", "","")
-                        case "NewVNet":
+                        case "newvnet":
+                            print("[INF] Proceeding New VNet deployment")
                             vnet_id = deployment_info.properties["outputs"]["vnetId"]["value"]
                             vnet_location = deployment_info.properties["parameters"]["location"]["value"]
                             vnet_size = deployment_info.properties["parameters"]["vnetSize"]["value"]
                             event_time = deployment_info.properties["outputs"]["deployTime"]["value"]
+                            vnet_name = vnet_id.split('/')[8]
+                            subscription_id = vnet_id.split('/')[2]
+                            vnet_rg = vnet_id.split('/')[4]
                             # Check for duplicates
                             vnet_ips = 0
                             try:
@@ -388,7 +394,8 @@ def main():
                 queue.store_error(item)
                 return
         devops_counter += 1
-        queue.send("devops", message)
+        if len(message) > 0:
+            queue.send("devops", message)
     requests.post(devops_url, data="{}", headers={"Content-Type": "application/json"})
     if devops_run and devops_url != "":
         print("[INF] Triggering DevOps Webhook")
