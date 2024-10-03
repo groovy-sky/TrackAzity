@@ -168,7 +168,7 @@ class TableClient:
         print("[INF] Deleting entity from table")
         self.client.delete_entity(entity["PartitionKey"], entity["RowKey"])
 
-    def create_ip_entity(self, cidr, peering_state, vnet_name, vnet_id, peering_sync_level, subnets, subscription_id, latest_event, location, additional_data):
+    def create_ip_entity(self, cidr, peering_state, vnet_name, vnet_id, peering_sync_level, subnets, subscription_id, latest_event, location, event_time):
         print("[INF] Creating IP entity")
         hex_ip = cidr_to_int(cidr)
         if vnet_name == "":
@@ -189,7 +189,7 @@ class TableClient:
             "SubscriptionID": subscription_id,
             "LatestEvent": latest_event,
             "Location": location,
-            "AdditionalData": additional_data
+            "LatestChangeTime": event_time
         }
         self.upsert(entity)
     def get_ip_entity(self, cidr):
@@ -198,7 +198,7 @@ class TableClient:
         except Exception as e:
             return "",False
         return result,True
-    def reserve_ip_entity(self, ip_size, vnet_id, location, latest_event, additional_data = ""):
+    def reserve_ip_entity(self, ip_size, vnet_id, location, latest_event, event_time = ""):
         print("[INF] Reserving IP entity for " + vnet_id)
         vnet_subscription = vnet_id.split('/')[2]
         vnet_name = vnet_id.split('/')[8]
@@ -214,14 +214,14 @@ class TableClient:
             "Location": location,
             "LatestEvent": latest_event,
         }
-        if additional_data:
-            entity["AdditionalData"] = additional_data
+        if event_time:
+            entity["LatestChangeTime"] = event_time
         self.upsert(entity)
-    def allocate_ip(self, requested_size):
-        print("[INF] Allocating IP entity")  
-        query_size = requested_size  
-        allocated_ip = None  
-        while query_size > 1 and not allocated_ip:  
+    def allocate_ip(self, requested_size : int =0):
+        print("[INF] Allocating IP entity for " + str(requested_size))  
+        query_size = int(requested_size)
+        allocated_ip = ""
+        while query_size > 1 and allocated_ip == "":  
             print("[INF] Searching for IP with size: " + str(query_size))  
             result = self.query("Used eq false and AddressCount eq {size}".format(size=ip_mask[query_size]))  
             try:  
@@ -259,16 +259,16 @@ class TableClient:
             "VNetName": "",
             "SubscriptionID": "",
             "LatestEvent": "",
-            "AdditionalData": "Released VNetID:" + current_entity.get("VNetID")
+            "LatestChangeTime": "Released VNetID:" + current_entity.get("VNetID")
         }
         self.upsert(entity)
 
-    def update_additional_data(self, cidr, vnet_id):
-        print("[INF] Updating AdditionalData")
+    def update_event_time(self, cidr, vnet_id):
+        print("[INF] Updating LatestChangeTime")
         hex_ip = cidr_to_int(cidr)
         entity = self.get_entity({"PartitionKey": hex_ip, "RowKey": hashlib.md5(hex_ip.encode()).hexdigest()})
         if entity:
-            entity["AdditionalData"]["VNetID"] = vnet_id
+            entity["LatestChangeTime"]["VNetID"] = vnet_id
             self.upsert(entity)
     
 class QueueClient:
@@ -366,7 +366,12 @@ def main():
                             print("[INF] Proceeding New VNet deployment")
                             vnet_id = deployment_info.properties["outputs"]["vnetId"]["value"]
                             vnet_location = deployment_info.properties["parameters"]["location"]["value"]
-                            vnet_size = deployment_info.properties["parameters"]["vnetSize"]["value"]
+                            try:
+                                vnet_size = int(deployment_info.properties["parameters"]["vnetSize"]["value"])
+                                print("[INF] Requested VNet Size: " + str(vnet_size))
+                            except (ValueError, TypeError) as e:
+                                print(f"[ERR] Invalid vnetSize value: {e}")
+                                return
                             event_time = deployment_info.properties["outputs"]["deployTime"]["value"]
                             vnet_name = vnet_id.split('/')[8]
                             subscription_id = vnet_id.split('/')[2]
@@ -374,14 +379,13 @@ def main():
                             # Check for duplicates
                             vnet_ips = 0
                             try:
-                                for ip in ips_table.query("VNetName eq '{vnet}' and AdditionalData eq {date}".format(vnet=vnet_name, date=event_time)):
+                                for ip in ips_table.query("VNetName eq '{vnet}' and LatestChangeTime eq {date}".format(vnet=vnet_name, date=event_time)):
                                     vnet_ips += 1
                             except Exception:
                                 pass
                             # Allocate IP if no duplicate found
                             if vnet_ips == 0:
-                                allocated_ip = ips_table.allocate_ip(vnet_size)
-                                reserved_ip = ips_table.reserve_ip_entity(allocated_ip, vnet_id, vnet_location, item["eventType"], event_time)
+                                reserved_ip = ips_table.reserve_ip_entity(vnet_size, vnet_id, vnet_location, item["eventType"], event_time)
                                 message = "az account set -s {subscription};\naz network vnet create -g {rg} -n {vnet} --address-prefix {ip} --subnet-name default --subnet-prefixes {ip};\naz network vnet peering create --name {hub_name} --remote-vnet {hub_id} --resource-group {rg} --vnet-name {vnet};\naz account set -s {hub_sub};\naz network vnet peering create --name {vnet} --remote-vnet /subscriptions/{subscription}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet} --resource-group {hub_rg} --vnet-name {hub_name}".format(subscription=subscription_id, rg=vnet_rg, vnet=vnet_name,ip = reserved_ip, hub_name=hub_name, hub_id=hub_id, hub_sub=hub_sub, hub_rg=hub_rg)
         # Process VNet peering request
         if item["operationName"] == "microsoft.network/virtualnetworks/virtualnetworkpeerings/write":
