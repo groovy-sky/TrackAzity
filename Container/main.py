@@ -46,27 +46,7 @@ ip_mask = {
     30: 4,  
     31: 2,  
     32: 1  
-}  
-
-def check_tcp_connection(ip_address, port):  
-    try:  
-        # Create a TCP socket  
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  
-          
-        # Set a timeout value for the socket connection  
-        sock.settimeout(2)  
-          
-        # Attempt to connect to the specified IP address and port  
-        result = sock.connect_ex((ip_address, port))  
-          
-        # Close the socket connection  
-        sock.close()  
-          
-        # Return True if the connection is successful (result is 0), False otherwise  
-        return result == 0  
-          
-    except socket.error:  
-        return False  
+}
 
 def cidr_to_int(cidr):  
     ip, prefix = cidr.split('/')  
@@ -348,7 +328,7 @@ def main():
 
     # Counter for number of message send to DevOps (maximum 32 messages allowed)
     devops_counter = 0
-    for item in queue.receive("azure", read_only = True, event = True):
+    for item in queue.receive("azure", read_only = False, event = True):
         # Process the event based on the operation name
         message = ""
         if item["operationName"] == "microsoft.resources/deployments/write":
@@ -397,9 +377,10 @@ def main():
                 print("[ERR] Peering info not found")
                 queue.store_error(item)
                 return
-        devops_counter += 1
         if len(message) > 0:
+            devops_counter += 1
             queue.send("devops", message)
+            devops_run = True
     requests.post(devops_url, data="{}", headers={"Content-Type": "application/json"})
     if devops_run and devops_url != "":
         print("[INF] Triggering DevOps Webhook")
