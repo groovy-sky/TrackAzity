@@ -197,9 +197,10 @@ class TableClient:
         if event_time:
             entity["LatestChangeTime"] = event_time
         self.upsert(entity)
-    def allocate_ip(self, requested_size : int =0):
+        return cidr
+    def allocate_ip(self, requested_size):
         print("[INF] Allocating IP entity for " + str(requested_size))  
-        query_size = int(requested_size)
+        query_size = requested_size
         allocated_ip = ""
         while query_size > 1 and allocated_ip == "":  
             print("[INF] Searching for IP with size: " + str(query_size))  
@@ -227,6 +228,7 @@ class TableClient:
             except StopIteration:  
                 next_result = []  
             query_size -= 1  
+        print("[INF] Allocated IP: " + allocated_ip)
         return allocated_ip  
     def release_ip_entity(self, cidr):
         print("[INF] Releasing IP entity")
@@ -343,12 +345,10 @@ def main():
                             if not exists:
                                 ips_table.create_ip_entity(ip, "", "", "", "", "", "", "", "","")
                         case "newvnet":
-                            print("[INF] Proceeding New VNet deployment")
                             vnet_id = deployment_info.properties["outputs"]["vnetId"]["value"]
                             vnet_location = deployment_info.properties["parameters"]["location"]["value"]
                             try:
                                 vnet_size = int(deployment_info.properties["parameters"]["vnetSize"]["value"])
-                                print("[INF] Requested VNet Size: " + str(vnet_size))
                             except (ValueError, TypeError) as e:
                                 print(f"[ERR] Invalid vnetSize value: {e}")
                                 return
@@ -366,6 +366,7 @@ def main():
                             # Allocate IP if no duplicate found
                             if vnet_ips == 0:
                                 reserved_ip = ips_table.reserve_ip_entity(vnet_size, vnet_id, vnet_location, item["eventType"], event_time)
+                                print("[INF] Proceed New VNet {vnet} deploy with {ip} IP".format(vnet=vnet_name, ip=reserved_ip))
                                 message = "az account set -s {subscription};\naz network vnet create -g {rg} -n {vnet} --address-prefix {ip} --subnet-name default --subnet-prefixes {ip};\naz network vnet peering create --name {hub_name} --remote-vnet {hub_id} --resource-group {rg} --vnet-name {vnet};\naz account set -s {hub_sub};\naz network vnet peering create --name {vnet} --remote-vnet /subscriptions/{subscription}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet} --resource-group {hub_rg} --vnet-name {hub_name}".format(subscription=subscription_id, rg=vnet_rg, vnet=vnet_name,ip = reserved_ip, hub_name=hub_name, hub_id=hub_id, hub_sub=hub_sub, hub_rg=hub_rg)
         # Process VNet peering request
         if item["operationName"] == "microsoft.network/virtualnetworks/virtualnetworkpeerings/write":
