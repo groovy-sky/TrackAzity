@@ -34,26 +34,17 @@ Azure DevOps Repository:
 
 A tag value can have a maximum of 256 characters.
 
-RG
-DvL08g2ULxDxn6
+
+**DvL08g2ULxDxn6**
+* vnet-lwxlt98lt28id9
+* event-topic-lgddktlx6c0eol
+
+
+
 
 STRG
 strg4whurqk7qms9x4
 
-VAULT
-vault4rkz6qu72uqfbfa
-
-VNET
-vnet-lwxlt98lt28id9
-
-Event Grid
-event-grid-z85u0167jc913j
-
-Event Topic
-event-topic-lgddktlx6c0eol
-
-Managed Identity
-58x1xh8p9v49p2
 
 0. Deploy ARM
 1. Assign to Event Topic Storage Queue Sender role
@@ -103,55 +94,3 @@ https://learn.microsoft.com/en-us/azure/container-apps/jobs?tabs=azure-cli#sched
 https://github.com/Azure/azure-sdk-for-go/blob/sdk/resourcemanager/appcontainers/armappcontainers/v2.1.0/sdk/resourcemanager/resources/armresources/client.go
 
 https://learn.microsoft.com/en-us/rest/api/containerapps/jobs/start?view=rest-containerapps-2024-03-01&tabs=HTTP
-
-
-```
-tenantId=$(az account tenant list --query "[].tenantId" -o tsv); echo $tenantId
-```
-
-
-```
-export RESOURCE_GROUP="hub-vnet"
-export JOB_NAME="$RESOURCE_GROUP-app-job"
-export ENVIRONMENT="$RESOURCE_GROUP-env"
-export QUEUE="send-test"
-export NAMESPACE="vnetbus"
-export CONTAINER_IMAGE_NAME="gr00vysky/url-query:latest"
-export URL="https://webhook.site/fdb92cd0-7aeb-46f6-9950-7a7b001ba3e8"
-export LOCATION="westeurope"
-
-az containerapp env create \
-    --name "$ENVIRONMENT" \
-    --resource-group "$RESOURCE_GROUP" \
-    --location "$LOCATION"
-
-az containerapp job create --name "$JOB_NAME" --resource-group "$RESOURCE_GROUP" --environment "$ENVIRONMENT" --trigger-type "Event" --replica-timeout "1800" --replica-retry-limit "1" --replica-completion-count "1" --parallelism "1" --min-executions "0" --max-executions "1" --polling-interval "60" --scale-rule-name "queue" --scale-rule-type "azure-servicebus" --scale-rule-metadata "queueName=$QUEUE" "namespace=$NAMESPACE" "messageCount=1" "connectionFromEnv=CONN_STR" --image "docker.io/$CONTAINER_IMAGE_NAME" --cpu "0.5" --memory "1Gi" --env-vars "URL=$URL" "CONN_STR=Endpoint=sb://vnetbus.servicebus.windows.net/;SharedAccessKeyName=reader;SharedAccessKey=iA4WA3jhTD9G7b2q4HNy0UCP8WlDC8sCT+ASbJreYMA=;EntityPath=send-test" --mi-system-assigned
-
-
-az containerapp job start -n "$JOB_NAME" -g "$RESOURCE_GROUP"
-
-az containerapp job create \
-    --name "$JOB_NAME"\
-    --resource-group "$RESOURCE_GROUP"\
-    --environment "$ENVIRONMENT"\
-    --trigger-type "Event"\
-    --replica-timeout "1800"\
-    --replica-retry-limit "1"\
-    --replica-completion-count "1"\
-    --parallelism "1"\
-    --min-executions "0"\
-    --max-executions "10"\
-    --polling-interval "60"\
-    --scale-rule-name "queue"\
-    --scale-rule-type "azure-servicebus"\
-    --scale-rule-metadata "queueName=xxxxx" "namespace=xxxxxx" "messageCount=1"\
-    --scale-rule-auth "connection=connection-string-secret"\
-    --image "$CONTAINER_REGISTRY_NAME.azurecr.io/$CONTAINER_IMAGE_NAME"\
-    --cpu "0.5"\
-    --memory "1Gi"\
-    --secrets "connection-string-secret=$QUEUE_CONNECTION_STRING"\
-    --registry-server "$CONTAINER_REGISTRY_NAME.azurecr.io"\
-    --env-vars "AZURE_STORAGE_QUEUE_NAME=$QUEUE_NAME" "AZURE_SERVICE_BUS_CONNECTION_STRING=secretref:connection
-
-```
-

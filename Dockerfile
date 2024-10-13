@@ -11,9 +11,11 @@ COPY requirements.txt .
   
 # Install the required Python packages  
 RUN apk add --no-cache --virtual .build-deps build-base && pip install --no-cache-dir -r requirements.txt && apk del .build-deps  
+
+WORKDIR /app  
   
 # Copy the Python script to the container  
-COPY main.py .  
+COPY src/ .  
   
 # Run the Python script when the container starts  
-CMD ["python", "main.py"]  
+CMD ["python", "app.py"]  

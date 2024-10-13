@@ -2,7 +2,6 @@ from azure.identity import DefaultAzureCredential
 from azure.storage.queue import QueueServiceClient,BinaryBase64DecodePolicy
 from azure.data.tables import TableServiceClient,UpdateMode
 from azure.mgmt.resource import ResourceManagementClient
-from datetime import datetime, timezone  
 import os
 import base64
 import json
@@ -12,8 +11,9 @@ import struct
 import ipaddress  
 import requests
 import socket  
+import time
 
-ip_mask = {  
+mask_to_ip = {  
     1: 2147483648,  
     2: 1073741824,  
     3: 536870912,  
@@ -48,10 +48,45 @@ ip_mask = {
     32: 1  
 }
 
+ip_to_mask = {
+    2147483648: 1,
+    1073741824: 2,
+    536870912: 3,
+    268435456: 4,
+    134217728: 5,
+    67108864: 6,
+    33554432: 7,
+    16777216: 8,
+    8388608: 9,
+    4194304: 10,
+    2097152: 11,
+    1048576: 12,
+    524288: 13,
+    262144: 14,
+    131072: 15,
+    65536: 16,
+    32768: 17,
+    16384: 18,
+    8192: 19,
+    4096: 20,
+    2048: 21,
+    1024: 22,
+    512: 23,
+    256: 24,
+    128: 25,
+    64: 26,
+    32: 27,
+    16: 28,
+    8: 29,
+    4: 30,
+    2: 31,
+    1: 32
+}
+
 def cidr_to_int(cidr):  
     ip, prefix = cidr.split('/')  
     ip_long = struct.unpack("!L", socket.inet_aton(ip))[0]  
-    return hex((ip_long << 32) + ip_mask[int(prefix)])  
+    return hex((ip_long << 32) + mask_to_ip[int(prefix)])  
 
 class AzClient:
     def __init__(self, subscription_id, credential):
@@ -159,7 +194,7 @@ class TableClient:
             "PartitionKey": hex_ip,
             "RowKey": hashlib.md5(hex_ip.encode()).hexdigest(),
             "IP": cidr,
-            "AddressCount": ip_mask[int(cidr.split('/')[1])],
+            "AddressCount": mask_to_ip[int(cidr.split('/')[1])],
             "Used": vnet_is_used,
             "PeeringState": peering_state,
             "VNetName": vnet_name,
@@ -180,6 +215,8 @@ class TableClient:
         return result,True
     def reserve_ip_entity(self, ip_size, vnet_id, location, latest_event, event_time = ""):
         print("[INF] Reserving IP entity for " + vnet_id)
+        if event_time == "":
+            event_time = int(time.time())
         vnet_subscription = vnet_id.split('/')[2]
         vnet_name = vnet_id.split('/')[8]
         cidr = self.allocate_ip(ip_size)
@@ -198,38 +235,33 @@ class TableClient:
             entity["LatestChangeTime"] = event_time
         self.upsert(entity)
         return cidr
-    def allocate_ip(self, requested_size):
+    def allocate_ip(self, requested_size):  
         print("[INF] Allocating IP entity for " + str(requested_size))  
-        query_size = requested_size
-        allocated_ip = ""
-        while query_size > 1 and allocated_ip == "":  
-            print("[INF] Searching for IP with size: " + str(query_size))  
-            result = self.query("Used eq false and AddressCount eq {size}".format(size=ip_mask[query_size]))  
-            try:  
-                next_result = next(result)  
-                if query_size == requested_size:  
-                    allocated_ip = next_result["IP"]  
-                else:  
-                    # Split the IP range to requested size and update the table.   
-                    # Should mark original IP as disabled, create new IPs with the split range   
-                    # and store their parent key into ChildKeys  
-                    cidr = next_result["IP"]  
-                    network = ipaddress.ip_network(cidr, strict=False)  
-                    child_keys = []  
-                    for ip in network.subnets(new_prefix=requested_size):  
-                        ip = str(ip)  
-                        self.create_ip_entity(ip, "", "", "", "", "", "", "", "", "")  
-                        child_keys.append(cidr_to_int(ip))  
-                        allocated_ip = ip  
-                    self.upsert({"PartitionKey": cidr_to_int(cidr),   
-                                 "RowKey": hashlib.md5(cidr_to_int(cidr).encode()).hexdigest(),   
-                                 "ChildKeys": ",".join(child_keys),   
-                                 "Used": True})  
-            except StopIteration:  
-                next_result = []  
-            query_size -= 1  
-        print("[INF] Allocated IP: " + allocated_ip)
-        return allocated_ip  
+        result = self.query("Used eq false and AddressCount eq {size}".format(size=mask_to_ip[requested_size]))  
+        try:  
+            next_result = next(result)["IP"]
+            return next_result["IP"]  
+        except StopIteration:  
+            next_result = []  
+        greater_entity = next(self.query("Used eq false and AddressCount gt {size}".format(size=mask_to_ip[requested_size])))
+        splitted_ips = [ipaddress.ip_network(greater_entity["IP"], strict=False)]
+        query_size = ip_to_mask[greater_entity["AddressCount"]]
+        while query_size < requested_size:
+            origin_ip = splitted_ips[-1]
+            child_keys = []
+            tmp_ips = list(origin_ip.subnets(new_prefix=query_size+1))
+            for ip in tmp_ips:
+                ip = str(ip)
+                self.create_ip_entity(ip, "", "", "", "", "", "", "", "", "")  
+                child_keys.append(cidr_to_int(ip))  
+            self.upsert({"PartitionKey": cidr_to_int(str(origin_ip)),   
+                            "RowKey": hashlib.md5(cidr_to_int(str(origin_ip)).encode()).hexdigest(),   
+                            "ChildKeys": ",".join(child_keys),   
+                            "Used": True})  
+            splitted_ips = tmp_ips
+            query_size += 1
+        return str(splitted_ips[-1])
+
     def release_ip_entity(self, cidr):
         print("[INF] Releasing IP entity")
         hex_ip = cidr_to_int(cidr)
@@ -275,18 +307,11 @@ class QueueClient:
     def parse_event(self, json_string):  
         print("[INF] Parsing Event")  
         json_data = json.loads(json_string)  
-        date_string = json_data['eventTime']
-        date_string = date_string[:26] + "Z"  # Truncate to microseconds  
-
-        dt = datetime.strptime(date_string, "%Y-%m-%dT%H:%M:%S.%fZ")  
-        dt = dt.replace(tzinfo=timezone.utc)  # Replace naive datetime object with a timezone-aware one  
-        epoch_time = int(dt.timestamp())  
 
         result = {  
             'subject': json_data['subject'].lower(),  
             'eventType': json_data['eventType'].lower(),  
-            'operationName': json_data['data']['operationName'].lower(),  
-            'eventTime': epoch_time
+            'operationName': json_data['data']['operationName'].lower()
         }  
         return result 
 
@@ -330,7 +355,7 @@ def main():
 
     # Counter for number of message send to DevOps (maximum 32 messages allowed)
     devops_counter = 0
-    for item in queue.receive("azure", read_only = False, event = True):
+    for item in queue.receive("azure", read_only = True, event = True):
         # Process the event based on the operation name
         message = ""
         if item["operationName"] == "microsoft.resources/deployments/write":
@@ -378,7 +403,7 @@ def main():
                 print("[ERR] Peering info not found")
                 queue.store_error(item)
                 return
-        if len(message) > 0:
+        if message != "":
             devops_counter += 1
             queue.send("devops", message)
             devops_run = True
