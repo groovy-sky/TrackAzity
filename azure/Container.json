@@ -1,0 +1,159 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "jobs_trackazity_job_name": {
+            "defaultValue": "trackazity-job",
+            "type": "String"
+        },
+        "cronSchedule": {
+            "defaultValue": "* */5 * * *",
+            "type": "String"
+        },
+        "hubResourceID": {
+            "type": "String"
+        },
+        "devOpsOrg":{
+            "type": "String"
+        },
+        "devOpsWebhook":{
+            "type": "String"
+        },
+        "storageName":{
+            "type": "String"
+        },
+        "location":{
+            "defaultValue": "[resourceGroup().location]",
+            "type": "String"
+        },
+        "containerImage":{
+            "defaultValue": "docker.io/gr00vysky/trackazity:latest",
+            "type": "String"
+        }
+    },
+    "variables": {
+        "containerEnvironment": "[concat('jobEnv',uniqueString(resourceGroup().id))]",
+        "workspaceName":"[concat('workspace',uniqueString(resourceGroup().id))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.App/managedEnvironments",
+            "apiVersion": "2024-03-01",
+            "name": "[variables('containerEnvironment')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "appLogsConfiguration": {
+                    "destination": "log-analytics",
+                    "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName'))).customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName')), '2022-10-01').primarySharedKey]"
+          }
+                },
+                "zoneRedundant": false,
+                "kedaConfiguration": {},
+                "daprConfiguration": {},
+                "customDomainConfiguration": {},
+                "workloadProfiles": [
+                    {
+                        "workloadProfileType": "Consumption",
+                        "name": "Consumption"
+                    }
+                ],
+                "peerAuthentication": {
+                    "mtls": {
+                        "enabled": false
+                    }
+                },
+                "peerTrafficConfiguration": {
+                    "encryption": {
+                        "enabled": false
+                    }
+                }
+            },
+            "dependsOn": [
+              "[resourceId('Microsoft.OperationalInsights/workspaces', variables('workspaceName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.OperationalInsights/workspaces",
+            "apiVersion": "2023-09-01",
+            "name": "[variables('workspaceName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "sku": {
+                    "name": "PerGB2018"
+                },
+                "retentionInDays": 30,
+                "features": {
+                    "legacy": 0,
+                    "searchVersion": 1,
+                    "enableLogAccessUsingOnlyResourcePermissions": true
+                },
+                "workspaceCapping": {
+                    "dailyQuotaGb": -1
+                },
+                "publicNetworkAccessForIngestion": "Enabled",
+                "publicNetworkAccessForQuery": "Enabled"
+            }
+        },
+        {
+            "type": "Microsoft.App/jobs",
+            "apiVersion": "2024-03-01",
+            "name": "[parameters('jobs_trackazity_job_name')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.App/managedEnvironments', variables('containerEnvironment'))]"
+            ],
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('containerEnvironment'))]",
+                "workloadProfileName": "Consumption",
+                "configuration": {
+                    "triggerType": "Schedule",
+                    "replicaTimeout": 1800,
+                    "replicaRetryLimit": 0,
+                    "scheduleTriggerConfig": {
+                        "replicaCompletionCount": 1,
+                        "cronExpression": "[parameters('cronSchedule')]",
+                        "parallelism": 1
+                    }
+                },
+                "template": {
+                    "containers": [
+                        {
+                            "image": "[parameters('containerImage')]",
+                            "name": "[parameters('jobs_trackazity_job_name')]",
+                            "command": [],
+                            "args": [],
+                            "env": [
+                                {
+                                    "name": "STORAGE_NAME",
+                                    "value": "[parameters('storageName')]"
+                                },
+                                {
+                                    "name": "DEVOPS_ORG",
+                                    "value": "[parameters('devOpsOrg')]"
+                                },
+                                {
+                                    "name": "DEVOPS_WEBHOOK",
+                                    "value": "[parameters('devOpsWebhook')]"
+                                },
+                                {
+                                    "name": "HUB_ID",
+                                    "value": "[parameters('hubResourceID')]"
+                                }
+                            ],
+                            "resources": {
+                                "cpu": 0.5,
+                                "memory": "1Gi"
+                            },
+                            "probes": []
+                        }
+                    ]
+                }
+            }
+        }
+            ]
+}

@@ -239,10 +239,9 @@ class TableClient:
         print("[INF] Allocating IP entity for " + str(requested_size))  
         result = self.query("Used eq false and AddressCount eq {size}".format(size=mask_to_ip[requested_size]))  
         try:  
-            next_result = next(result)["IP"]
-            return next_result["IP"]  
+            return next(result)["IP"]
         except StopIteration:  
-            next_result = []  
+            pass
         greater_entity = next(self.query("Used eq false and AddressCount gt {size}".format(size=mask_to_ip[requested_size])))
         splitted_ips = [ipaddress.ip_network(greater_entity["IP"], strict=False)]
         query_size = ip_to_mask[greater_entity["AddressCount"]]
@@ -355,7 +354,7 @@ def main():
 
     # Counter for number of message send to DevOps (maximum 32 messages allowed)
     devops_counter = 0
-    for item in queue.receive("azure", read_only = True, event = True):
+    for item in queue.receive("azure", read_only = False, event = True):
         # Process the event based on the operation name
         message = ""
         if item["operationName"] == "microsoft.resources/deployments/write":
