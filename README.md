@@ -32,19 +32,6 @@ Azure DevOps Repository:
 - [ ] Delete Spoke IP allocation functionality
 
 
-A tag value can have a maximum of 256 characters.
-
-
-**DvL08g2ULxDxn6**
-* vnet-lwxlt98lt28id9
-* event-topic-lgddktlx6c0eol
-
-
-
-
-STRG
-strg4whurqk7qms9x4
-
 
 0. Deploy ARM
 1. Assign to Event Topic Storage Queue Sender role

@@ -1,5 +1,7 @@
-storage_location = "SwedenCentral"
-storage_rg = "trackazity-storage-rg"
+#/bin/bash
+
+storage_location="SwedenCentral"
+storage_rg="trackazity-storage-rg"
 
 # Create a resource group
 az group create --name $storage_rg --location $storage_location
