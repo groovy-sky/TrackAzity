@@ -22,4 +22,4 @@ devops_webhook="vnet-connection"
 az group create --name $container_name --location $container_location
 
 # Deploy ARM template for container and related environemnt
-az deployment group create --resource-group $container_name --template-file Container.json --parameters storageAccountName=$storage_account_name 
+az deployment group create --resource-group $container_name --template-file Container.json --parameters storageName=$storage_account_name 
